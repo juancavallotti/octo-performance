@@ -40,6 +40,16 @@ start() {
   local env_args=()
   [ -n "${LOG_LEVEL:-}" ] && env_args+=(-e "LOG_LEVEL=$LOG_LEVEL")
 
+  # A scenario's dependencies (a database, a backend server) run on the host, and
+  # "localhost" inside a container is the container. DOCKER_ENV lets a scenario
+  # restate those addresses for this target — it is a property of the target, not
+  # of the integration, which is why it lives in scenario.env rather than in the
+  # YAML. Entries are NAME=VALUE, space separated.
+  local kv
+  for kv in ${DOCKER_ENV:-}; do
+    env_args+=(-e "$kv")
+  done
+
   # Deployment envelope. Unset means "whatever the host has", which is the right
   # default for tracking Octo against itself; CPU_LIMIT is for the cross-vendor
   # comparison, where the envelope has to match the one the other vendor published.
