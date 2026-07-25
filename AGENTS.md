@@ -133,3 +133,22 @@ Recorded here so nobody re-discovers them:
   exists to copy exactly one variant into a clean directory.
 - `workers`, `buffer`, and `pool` are **root-flow only**. Sub-flows inside composite blocks
   inherit from the parent and cannot declare their own.
+
+## Comparing against other runtimes
+
+Published numbers from Apache Camel, Quarkus, and a commercial platform are recorded in the Notion page. Two
+rules when using them:
+
+1. **Only the footprint comparison is currently defensible.** Idle memory and cold start differ
+   by an order of magnitude and survive the methodological differences. Throughput does not:
+   Camel's figures come from a 24-core Xeon server, ours from a 10-core laptop that is also
+   running the load generator.
+2. **Match the scenario before claiming anything.** Camel's headline 0.345 ms is *in-process
+   routing latency*, not an end-to-end HTTP request, so it is not comparable to scenario 001's
+   0.09 ms p50 however similar the magnitudes look.
+
+Planned scenarios exist specifically to make the comparison arguable — a content-based router
+(Camel's headline benchmark), an HTTP proxy passthrough (the canonical API-gateway shape most
+the platform numbers describe), and a payload-size ladder (the platform benchmarks payload transformation at 1 KB / 100 KB /
+1 MB). All of them want a Linux x86 host with a separate load generator before the results mean
+much.
