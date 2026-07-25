@@ -50,7 +50,7 @@ esac
 # --- cold start ---------------------------------------------------------------
 START_EPOCH_MS="$(epoch_ms)"
 ID="$("$DRIVER" start "$STAGE" "$STATE")"
-if ! COLD_START_MS="$(wait_ready "${BASE_URL}${ROUTE}" 60)"; then
+if ! COLD_START_MS="$(wait_ready "$(ready_url)" 60)"; then
   warn "target never became ready; see $STATE/octo.log"
   cat "$STATE/octo.log" >&2 2>/dev/null || true
   die "footprint aborted"

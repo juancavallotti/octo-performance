@@ -100,6 +100,20 @@ flows:
         settings:
           flow: finalize
 
+  # Readiness probe. The measured route is a POST that requires a body, so the
+  # harness cannot use it to decide the server is up; Octo has no built-in health
+  # endpoint, so the scenario provides one. Not in the measured path.
+  - name: health
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /health
+    process:
+      - type: set-payload
+        settings:
+          value: '{"status": "ok"}'
+
   # Callable flows: no source, no concurrency knobs of their own — they run on the
   # calling flow's workers.
   - name: score-risk

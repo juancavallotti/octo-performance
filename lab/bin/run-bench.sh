@@ -84,7 +84,7 @@ mkdir -p "$SMOKE_STATE"
 smoke_cleanup() { "$DRIVER" stop "$SMOKE_STATE" 2>/dev/null || true; }
 trap smoke_cleanup EXIT
 "$DRIVER" start "$STAGE" "$SMOKE_STATE" >/dev/null
-wait_ready "${BASE_URL}${ROUTE}" 60 >/dev/null || {
+wait_ready "$(ready_url)" 60 >/dev/null || {
   cat "$SMOKE_STATE/octo.log" >&2 2>/dev/null || true
   die "target never became ready"
 }
@@ -139,7 +139,7 @@ PY
 
     start_ms="$(epoch_ms)"
     ID="$("$DRIVER" start "$STAGE" "$cell")"
-    if ! wait_ready "${BASE_URL}${ROUTE}" 60 >/dev/null; then
+    if ! wait_ready "$(ready_url)" 60 >/dev/null; then
       cat "$cell/octo.log" >&2 2>/dev/null || true
       die "target never became ready"
     fi

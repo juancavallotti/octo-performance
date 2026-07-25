@@ -71,8 +71,16 @@ load_scenario() {
   [ -n "$overridden" ] && dim "  scenario overrides:${overridden}"
 
   : "${ROUTE:?scenario.env must define ROUTE}"
-  export SCENARIO_ID SCENARIO_DIR ROUTE
+  # Readiness is probed with a bare GET. A scenario whose ROUTE needs a request
+  # body (or a method other than GET) declares READY_ROUTE pointing at a trivial
+  # health flow instead — the runtime has no built-in health endpoint, so each
+  # scenario that needs one provides it.
+  : "${READY_ROUTE:=$ROUTE}"
+  export SCENARIO_ID SCENARIO_DIR ROUTE READY_ROUTE
 }
+
+# The URL the harness polls to decide the target is up.
+ready_url() { printf '%s%s\n' "$BASE_URL" "${READY_ROUTE:-$ROUTE}"; }
 
 # --------------------------------------------------------------- versions ----
 

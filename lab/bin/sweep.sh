@@ -78,7 +78,7 @@ for w in $WORKERS_LIST; do
     trap cell_cleanup EXIT
 
     ID="$("$DRIVER" start "$STAGE" "$cell")"
-    if ! wait_ready "${BASE_URL}${ROUTE}" 60 >/dev/null; then
+    if ! wait_ready "$(ready_url)" 60 >/dev/null; then
       warn "combination did not start; skipping"
       cat "$cell/octo.log" >&2 2>/dev/null || true
       "$DRIVER" stop "$cell" 2>/dev/null || true
