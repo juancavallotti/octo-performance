@@ -82,6 +82,22 @@ load_scenario() {
 # The URL the harness polls to decide the target is up.
 ready_url() { printf '%s%s\n' "$BASE_URL" "${READY_ROUTE:-$ROUTE}"; }
 
+# Scenario dependency lifecycle. A scenario that needs external infrastructure —
+# a database, a broker — provides setup.sh and teardown.sh next to its
+# scenario.env. Both are optional and run outside the measured window, so
+# container start-up and schema creation never land inside a benchmark.
+scenario_setup() {
+  [ -x "$SCENARIO_DIR/setup.sh" ] || return 0
+  step "scenario setup"
+  "$SCENARIO_DIR/setup.sh" || die "scenario setup failed"
+}
+
+scenario_teardown() {
+  [ -x "$SCENARIO_DIR/teardown.sh" ] || return 0
+  step "scenario teardown"
+  "$SCENARIO_DIR/teardown.sh" || warn "scenario teardown reported an error"
+}
+
 # --------------------------------------------------------------- versions ----
 
 # The native binary under test. Defaults to whatever is on PATH; set OCTO_BIN to

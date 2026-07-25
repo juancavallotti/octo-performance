@@ -32,6 +32,9 @@ python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" tuned 
   --tunables "${TUNABLES:-workers buffer pool}" >/dev/null \
   || die "cannot render the tuned variant — the scenario's root flow declares no tuning knobs"
 
+scenario_setup
+trap 'scenario_teardown' EXIT
+
 VERSION="$(version_under_test "$TARGET")"
 SWEEP_ID="$(today)-${HOST_PROFILE}-${SCENARIO_ID}-${TARGET}-v${VERSION}"
 SWEEP_DIR="$REPO_ROOT/results/sweeps/$SWEEP_ID"
@@ -104,7 +107,7 @@ for w in $WORKERS_LIST; do
 
     "$LAB_BIN/sampler-stop.sh" "$cell"
     "$DRIVER" stop "$cell"
-    trap - EXIT
+    trap 'scenario_teardown' EXIT
 
     # Mandatory between combinations: without it a sweep measures the order in
     # which combinations happened to run as much as the combinations themselves.

@@ -67,6 +67,7 @@ baseline-vs-tuned comparison explores:
 |---|---|
 | [001-template-page](scenarios/001-template-page/) | HTTP route rendering a template resource as an HTML page. The floor: HTTP source, path parameters, templating, no I/O. |
 | [002-fanout-transform](scenarios/002-fanout-transform/) | `fork` fan-out, `multi-transform`, mapped `foreach`, and `flow-ref` composition. The first scenario that actually schedules work on `pool`. |
+| [003-postgres-crud](scenarios/003-postgres-crud/) | Write, read back, and delete a row per request against containerised Postgres. The first flow that **blocks** — where `workers` meets `maxOpenConns`. |
 
 More scenarios — other connectors, database-backed flows, outbound REST calls, forked composites —
 get added over time. See [AGENTS.md](AGENTS.md) for the checklist.

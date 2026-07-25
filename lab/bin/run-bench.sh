@@ -36,6 +36,12 @@ for v in $VARIANTS; do
 done
 dim "  ok"
 
+# --------------------------------------------------- scenario dependencies ----
+# Outside the measured window: a cold database inside a benchmark would put
+# container start-up and schema creation into the numbers.
+scenario_setup
+trap 'scenario_teardown' EXIT
+
 # ------------------------------------------------------------------ run id ----
 VERSION="$(version_under_test "$TARGET")"
 RUN_ID="$(today)-${HOST_PROFILE}-${SCENARIO_ID}-${TARGET}-v${VERSION}"
@@ -96,7 +102,7 @@ else
   die "smoke failed — a load run on a broken endpoint is not a result (AGENTS.md rule 6)"
 fi
 "$DRIVER" stop "$SMOKE_STATE"
-trap - EXIT
+trap 'scenario_teardown' EXIT
 
 # ---------------------------------------------------------------- footprint ---
 TARGET="$TARGET" ROUTE="$ROUTE" "$LAB_BIN/footprint.sh" "$SCENARIO_DIR" "$RUN_DIR/footprint.json"
@@ -166,7 +172,7 @@ PY
 
     "$LAB_BIN/sampler-stop.sh" "$cell"
     "$DRIVER" stop "$cell"
-    trap - EXIT
+    trap 'scenario_teardown' EXIT
 
     rm -f "$cell/warmup.log"
 

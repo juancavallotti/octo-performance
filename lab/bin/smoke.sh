@@ -26,13 +26,16 @@ python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" "$VARI
   || die "cannot render the '$VARIANT' variant"
 dim "  ok"
 
+scenario_setup
+trap 'scenario_teardown' EXIT
+
 STAGE="$REPO_ROOT/.stage/smoke"
 STATE="$REPO_ROOT/.stage/smoke-state"
 rm -rf "$STATE"; mkdir -p "$STATE"
 
 "$LAB_BIN/stage-config.sh" "$SCENARIO_DIR" "$VARIANT" "$STAGE" >/dev/null
 
-cleanup() { "$DRIVER" stop "$STATE" 2>/dev/null || true; }
+cleanup() { "$DRIVER" stop "$STATE" 2>/dev/null || true; scenario_teardown; }
 trap cleanup EXIT
 
 step "starting $TARGET ($VARIANT)"
@@ -55,6 +58,7 @@ k6 run \
 
 "$DRIVER" stop "$STATE"
 trap - EXIT
+scenario_teardown
 
 if [ "$exit_code" -ne 0 ]; then
   die "smoke failed — see $STATE/k6.log"
