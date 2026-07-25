@@ -40,14 +40,22 @@ tasks:
   bench:
     desc: 'Full benchmark: baseline vs tuned, N repetitions, resources sampled, report written'
     cmds:
-      # go-task variables are not exported, so the tuning knobs have to be passed
-      # through explicitly. Empty values are inert: the tuned arm then keeps
-      # whatever integration.yaml declares.
+      # go-task variables are not exported, so knobs passed as `task bench
+      # TUNED_X=...` have to be forwarded explicitly. The names below cover the
+      # current scenarios; empty values are inert, leaving whatever
+      # integration.yaml declares.
+      #
+      # For a knob not listed here, use the environment form instead — task
+      # inherits the environment, so it reaches the harness unchanged:
+      #     TUNED_CONNMAXLIFETIME=1m task bench SCENARIO=...
       - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} REPS={{.REPS}}
         TEST={{.TEST | default "steady"}}
         TUNED_WORKERS={{.TUNED_WORKERS | default ""}}
         TUNED_BUFFER={{.TUNED_BUFFER | default ""}}
         TUNED_POOL={{.TUNED_POOL | default ""}}
+        TUNED_MAXOPENCONNS={{.TUNED_MAXOPENCONNS | default ""}}
+        TUNED_MAXIDLECONNS={{.TUNED_MAXIDLECONNS | default ""}}
+        TUNED_LISTENERS={{.TUNED_LISTENERS | default ""}}
         ./lab/bin/run-bench.sh
 
   capacity:

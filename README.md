@@ -61,6 +61,17 @@ baseline-vs-tuned comparison explores:
 
 `task sweep` grid-searches them and reports the winner.
 
+**When they matter.** Only once the flow blocks. On a CPU-bound flow ([001](scenarios/001-template-page/),
+[002](scenarios/002-fanout-transform/)) tuning changes nothing measurable — a worker never
+waits, so there is no queue to relieve. On a flow that makes three database round trips per
+request ([003](scenarios/003-postgres-crud/)), raising `workers` from the default 8 to 64
+took p95 from **4,134 ms to 25.7 ms** at the same offered rate, and turned a saturated system
+into one running at the full requested throughput.
+
+The rule that falls out: for a blocking flow, `workers` needs to be at least
+`target_rps × seconds_blocked_per_request`. The default of 8 suits CPU-bound work and is
+badly wrong for anything that waits on I/O.
+
 ## Scenarios
 
 | Scenario | What it exercises |

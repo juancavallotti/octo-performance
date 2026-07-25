@@ -34,6 +34,32 @@ talk to Postgres. Raising `workers` past `maxOpenConns` does not add throughput,
 moves the queue from the message channel to the connection pool. Finding where those two
 cross is the point.
 
+## What this scenario has already shown
+
+Measured on `m1pro-16gb`, Octo 0.4.3, Postgres 17 in a container on the same host.
+
+**Tuning `workers` is worth 161× on p95 here.** Same flow, same offered rate (4,000 req/s),
+25 seconds:
+
+| arm | `workers` | throughput | p95 | p99 | dropped |
+|---|---|---|---|---|---|
+| baseline | 8 (runtime default) | 2,599 req/s | **4,134 ms** | 5,137 ms | 20,948 |
+| tuned | 64 | 3,999 req/s — the full offered rate | **25.7 ms** | 62.8 ms | 0 |
+
+The arithmetic predicts it. Three round trips at roughly 1.5 ms each is ~4.5 ms of blocked
+time per message, so eight workers cap the flow at 8 ÷ 4.5 ms ≈ 1,780 req/s. The capacity
+ramp measured a ceiling of 1,664 req/s — and confirmed the flow was never CPU-bound: Octo's
+CPU peaked at 136% of one core, then *fell* to 42% while throughput collapsed and latency
+climbed past nine seconds. The workers were sitting on blocked sockets, not working.
+
+**The rule:** for a blocking flow, `workers` needs to be at least
+`target_rps × seconds_blocked_per_request`. The default of 8 suits CPU-bound work and is
+badly wrong for anything that waits on I/O.
+
+Note what this does *not* say. Scenarios 001 and 002 showed no benefit from tuning at all,
+because a non-blocking flow has no queue to relieve. The knob only earns its keep once
+something waits.
+
 ## Tunables
 
 Declared in `scenario.env` as `TUNABLES`:

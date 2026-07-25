@@ -1,0 +1,102 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /Users/juancavallotti/Documents/development/octo-performance/scenarios/003-postgres-crud/k6/steady.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 9600 max VUs, 35s max duration (incl. graceful stop):
+              * steady: 4000.00 iterations/s for 25s (maxVUs: 960-9600, gracefulStop: 10s)
+
+
+running (00.9s), 0006/0960 VUs, 3666 complete and 0 interrupted iterations
+steady   [   4% ] 0006/0960 VUs  00.9s/25s  4000.00 iters/s
+
+running (01.9s), 0005/0960 VUs, 7667 complete and 0 interrupted iterations
+steady   [   8% ] 0005/0960 VUs  01.9s/25s  4000.00 iters/s
+
+running (02.9s), 0006/0960 VUs, 11665 complete and 0 interrupted iterations
+steady   [  12% ] 0007/0960 VUs  02.9s/25s  4000.00 iters/s
+
+running (03.9s), 0006/0960 VUs, 15666 complete and 0 interrupted iterations
+steady   [  16% ] 0006/0960 VUs  03.9s/25s  4000.00 iters/s
+
+running (04.9s), 0028/0960 VUs, 19644 complete and 0 interrupted iterations
+steady   [  20% ] 0028/0960 VUs  04.9s/25s  4000.00 iters/s
+
+running (05.9s), 0009/0960 VUs, 23663 complete and 0 interrupted iterations
+steady   [  24% ] 0009/0960 VUs  05.9s/25s  4000.00 iters/s
+
+running (06.9s), 0006/0960 VUs, 27666 complete and 0 interrupted iterations
+steady   [  28% ] 0006/0960 VUs  06.9s/25s  4000.00 iters/s
+
+running (07.9s), 0009/0960 VUs, 31663 complete and 0 interrupted iterations
+steady   [  32% ] 0009/0960 VUs  07.9s/25s  4000.00 iters/s
+
+running (08.9s), 0065/0960 VUs, 35608 complete and 0 interrupted iterations
+steady   [  36% ] 0065/0960 VUs  08.9s/25s  4000.00 iters/s
+
+running (09.9s), 0008/0960 VUs, 39664 complete and 0 interrupted iterations
+steady   [  40% ] 0008/0960 VUs  09.9s/25s  4000.00 iters/s
+
+running (10.9s), 0006/0960 VUs, 43666 complete and 0 interrupted iterations
+steady   [  44% ] 0006/0960 VUs  10.9s/25s  4000.00 iters/s
+
+running (11.9s), 0192/0960 VUs, 47478 complete and 0 interrupted iterations
+steady   [  48% ] 0192/0960 VUs  11.9s/25s  4000.00 iters/s
+
+running (12.9s), 0013/0960 VUs, 51659 complete and 0 interrupted iterations
+steady   [  52% ] 0013/0960 VUs  12.9s/25s  4000.00 iters/s
+
+running (13.9s), 0006/0960 VUs, 55666 complete and 0 interrupted iterations
+steady   [  56% ] 0006/0960 VUs  13.9s/25s  4000.00 iters/s
+
+running (14.9s), 0150/0960 VUs, 59522 complete and 0 interrupted iterations
+steady   [  60% ] 0150/0960 VUs  14.9s/25s  4000.00 iters/s
+
+running (15.9s), 0009/0960 VUs, 63663 complete and 0 interrupted iterations
+steady   [  64% ] 0009/0960 VUs  15.9s/25s  4000.00 iters/s
+
+running (16.9s), 0049/0960 VUs, 67643 complete and 0 interrupted iterations
+steady   [  68% ] 0049/0960 VUs  16.9s/25s  4000.00 iters/s
+
+running (17.9s), 0010/0960 VUs, 71662 complete and 0 interrupted iterations
+steady   [  72% ] 0010/0960 VUs  17.9s/25s  4000.00 iters/s
+
+running (18.9s), 0017/0960 VUs, 75656 complete and 0 interrupted iterations
+steady   [  76% ] 0017/0960 VUs  18.9s/25s  4000.00 iters/s
+
+running (19.9s), 0012/0960 VUs, 79659 complete and 0 interrupted iterations
+steady   [  80% ] 0012/0960 VUs  19.9s/25s  4000.00 iters/s
+
+running (20.9s), 0008/0960 VUs, 83664 complete and 0 interrupted iterations
+steady   [  84% ] 0008/0960 VUs  20.9s/25s  4000.00 iters/s
+
+running (21.9s), 0010/0960 VUs, 87662 complete and 0 interrupted iterations
+steady   [  88% ] 0010/0960 VUs  21.9s/25s  4000.00 iters/s
+
+running (22.9s), 0012/0960 VUs, 91660 complete and 0 interrupted iterations
+steady   [  92% ] 0012/0960 VUs  22.9s/25s  4000.00 iters/s
+
+running (23.9s), 0011/0960 VUs, 95661 complete and 0 interrupted iterations
+steady   [  96% ] 0011/0960 VUs  23.9s/25s  4000.00 iters/s
+
+running (24.9s), 0013/0960 VUs, 99659 complete and 0 interrupted iterations
+steady   [ 100% ] 0013/0960 VUs  24.9s/25s  4000.00 iters/s
+
+  http_reqs                    100001 (3999.63/s)
+  http_req_duration            med=1.78ms p95=25.69ms p99=62.82ms max=121.94ms
+  http_req_waiting             p95=25.54ms
+  http_req_failed              0.000%
+  dropped_iterations           0
+  vus_max                      960
+  checks                       0 passed, 0 failed
+
+
+running (25.0s), 0000/0960 VUs, 100001 complete and 0 interrupted iterations
+steady ✓ [ 100% ] 0000/0960 VUs  25s  4000.00 iters/s
