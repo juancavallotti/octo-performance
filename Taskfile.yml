@@ -40,8 +40,15 @@ tasks:
   bench:
     desc: 'Full benchmark: baseline vs tuned, N repetitions, resources sampled, report written'
     cmds:
+      # go-task variables are not exported, so the tuning knobs have to be passed
+      # through explicitly. Empty values are inert: the tuned arm then keeps
+      # whatever integration.yaml declares.
       - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} REPS={{.REPS}}
-        TEST={{.TEST | default "steady"}} ./lab/bin/run-bench.sh
+        TEST={{.TEST | default "steady"}}
+        TUNED_WORKERS={{.TUNED_WORKERS | default ""}}
+        TUNED_BUFFER={{.TUNED_BUFFER | default ""}}
+        TUNED_POOL={{.TUNED_POOL | default ""}}
+        ./lab/bin/run-bench.sh
 
   capacity:
     desc: 'Ramp the offered rate to find the knee, so STEADY_RATE can be chosen honestly'

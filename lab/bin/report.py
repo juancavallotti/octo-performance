@@ -328,10 +328,12 @@ def render(run_dir, env, footprint, groups, test):
     a("")
 
     knobs = (tuned or {}).get("knobs", {})
-    a(f"**Baseline** — no `workers`/`buffer`/`pool` declared (Octo defaults: 8 / 64 / 8).  ")
+    a("**Baseline** — `workers`, `buffer` and `pool` stripped from the config, so the runtime "
+      "uses whatever it defaults to.  ")
     if tuned:
-        a(f"**Tuned** — workers `{knobs.get('workers', 'default')}`, "
-          f"buffer `{knobs.get('buffer', 'default')}`, pool `{knobs.get('pool', 'default')}`.")
+        a(f"**Tuned** — workers `{knobs.get('workers', 'as declared')}`, "
+          f"buffer `{knobs.get('buffer', 'as declared')}`, "
+          f"pool `{knobs.get('pool', 'as declared')}`.")
     a("")
 
     # ---- validity first: the methodology says read these before anything else ----

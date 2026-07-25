@@ -38,14 +38,38 @@ load_host() {
 }
 
 # load_scenario <scenario-id>  — source scenarios/<id>/scenario.env and export paths.
+#
+# scenario.env supplies DEFAULTS. Anything the caller already set in the
+# environment wins, so `STEADY_DURATION=15s task bench ...` shortens a run without
+# editing the scenario. Sourcing alone would silently overwrite the caller.
 load_scenario() {
   local id="${1:?scenario id required}"
   SCENARIO_ID="$id"
   SCENARIO_DIR="$REPO_ROOT/scenarios/$id"
   [ -d "$SCENARIO_DIR" ] || die "no scenario at $SCENARIO_DIR"
-  [ -f "$SCENARIO_DIR/scenario.env" ] || die "scenario $id has no scenario.env"
+
+  local envfile="$SCENARIO_DIR/scenario.env"
+  [ -f "$envfile" ] || die "scenario $id has no scenario.env"
+
+  # Remember which of the file's keys the caller had already set.
+  local key overridden=""
+  for key in $(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$envfile" | tr -d '='); do
+    if [ -n "${!key+set}" ] && [ -n "${!key}" ]; then
+      overridden="$overridden $key"
+      eval "__override_${key}=\${${key}}"
+    fi
+  done
+
   # shellcheck disable=SC1090
-  set -a; . "$SCENARIO_DIR/scenario.env"; set +a
+  set -a; . "$envfile"; set +a
+
+  for key in $overridden; do
+    eval "${key}=\${__override_${key}}"
+    eval "unset __override_${key}"
+    export "${key?}"
+  done
+  [ -n "$overridden" ] && dim "  scenario overrides:${overridden}"
+
   : "${ROUTE:?scenario.env must define ROUTE}"
   export SCENARIO_ID SCENARIO_DIR ROUTE
 }
@@ -63,12 +87,21 @@ k6_version() {
   k6 version 2>/dev/null | awk '{print $2; exit}' | tr -d 'v\r'
 }
 
-# docker_image_version <image> — best-effort version label of the runtime image.
+# docker_image_version <image> — the runtime version inside the image.
+#
+# The published image carries no org.opencontainers.image.version label, so the
+# authoritative answer comes from asking the binary. A tag like "latest" is not a
+# version and would make results unattributable.
 docker_image_version() {
   local image="$1" v
+
+  v="$(docker run --rm --entrypoint /usr/local/bin/octo "$image" version 2>/dev/null \
+       | awk '{print $2; exit}' | tr -d '\r')"
+  [ -n "$v" ] && { echo "$v"; return; }
+
   v="$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.version"}}' 2>/dev/null || true)"
   [ -n "$v" ] && [ "$v" != "<no value>" ] && { echo "$v"; return; }
-  # Fall back to the tag when the image carries no version label.
+
   case "$image" in
     *:*) echo "${image##*:}" ;;
     *)   echo "latest" ;;
