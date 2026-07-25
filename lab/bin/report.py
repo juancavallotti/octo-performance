@@ -330,13 +330,15 @@ def render(run_dir, env, footprint, groups, test):
       f"{fmt_num(base.get('durationSeconds'), 0, 's')}.")
     a("")
 
-    knobs = (tuned or {}).get("knobs", {})
-    a("**Baseline** — `workers`, `buffer` and `pool` stripped from the config, so the runtime "
-      "uses whatever it defaults to.  ")
+    # Knob names are per-scenario, so render whatever the run actually recorded
+    # rather than assuming the root-flow trio.
+    knobs = (tuned or {}).get("knobs", {}) or (base or {}).get("knobs", {})
+    names = list(knobs.keys())
+    a(f"**Baseline** — {', '.join(f'`{n}`' for n in names) or 'the tunables'} stripped from the "
+      "config, so the runtime uses whatever it defaults to.  ")
     if tuned:
-        a(f"**Tuned** — workers `{knobs.get('workers', 'as declared')}`, "
-          f"buffer `{knobs.get('buffer', 'as declared')}`, "
-          f"pool `{knobs.get('pool', 'as declared')}`.")
+        tk = tuned.get("knobs", {})
+        a("**Tuned** — " + ", ".join(f"{n} `{tk.get(n, 'as declared')}`" for n in names) + ".")
     a("")
 
     # ---- validity first: the methodology says read these before anything else ----

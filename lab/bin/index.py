@@ -41,13 +41,23 @@ def main():
     os.makedirs(results_dir, exist_ok=True)
 
     runs = []
+    skipped = 0
     for name in sorted(os.listdir(results_dir), reverse=True):
         p = os.path.join(results_dir, name, "result.json")
-        if os.path.isfile(p):
-            r = load(p)
-            if r:
-                r["_dir"] = name
-                runs.append(r)
+        if not os.path.isfile(p):
+            continue
+        r = load(p)
+        if not r:
+            continue
+        # Capacity probes are calibration, not publication: they deliberately push
+        # past saturation and have no tuned arm, so listing them alongside steady
+        # results invites reading a saturated ramp as a throughput number. They
+        # stay on disk; they just do not appear here.
+        if r.get("test") == "capacity":
+            skipped += 1
+            continue
+        r["_dir"] = name
+        runs.append(r)
 
     lines = []
     a = lines.append
@@ -116,6 +126,10 @@ def main():
     a("")
     a("Numbers are the median repetition. See [METHODOLOGY.md](../METHODOLOGY.md) for how "
       "they are produced and what they do not mean.")
+    if skipped:
+        a("")
+        a(f"_{skipped} capacity probe(s) are on disk but not listed: they deliberately push past "
+          "saturation to locate the knee, so their throughput is not a result._")
     a("")
 
     with open(os.path.join(results_dir, "index.md"), "w") as fh:

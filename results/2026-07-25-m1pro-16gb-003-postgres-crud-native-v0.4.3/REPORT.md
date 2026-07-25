@@ -43,8 +43,8 @@ What the runtime costs before it serves a single request.
 
 Test `steady`, 1 repetition(s) per variant, median repetition shown. Offered rate 4,000 req/s for 30s.
 
-**Baseline** — `workers`, `buffer` and `pool` stripped from the config, so the runtime uses whatever it defaults to.  
-**Tuned** — workers `64`, buffer `64`, pool `8`.
+**Baseline** — `workers`, `buffer`, `pool`, `maxOpenConns`, `maxIdleConns` stripped from the config, so the runtime uses whatever it defaults to.  
+**Tuned** — workers `64`, buffer `64`, pool `8`, maxOpenConns `25`, maxIdleConns `25`.
 
 ### Validity
 

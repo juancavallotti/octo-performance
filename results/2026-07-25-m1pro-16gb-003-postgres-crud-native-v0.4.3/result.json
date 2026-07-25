@@ -1,6 +1,6 @@
 {
   "runId": "2026-07-25-m1pro-16gb-003-postgres-crud-native-v0.4.3",
-  "generatedAt": "2026-07-25T19:08:36Z",
+  "generatedAt": "2026-07-25T19:47:05Z",
   "scenario": "003-postgres-crud",
   "target": "native",
   "hostProfile": "m1pro-16gb",
