@@ -122,6 +122,55 @@ def main():
               f"{n(fp.get('coldStartMs'), 0, ' ms')} |")
         a("")
 
+    # ---- cross-target view ----
+    #
+    # Deliberately last, and deliberately hedged. Rule 5 says compare within a
+    # target; this table exists because "does the published image behave like the
+    # binary" is still worth asking, not because the two columns are equivalent.
+    a("## Native against container")
+    a("")
+    a("Latest run per scenario and target, same Octo version. On macOS the container "
+      "publishes its port through a Docker Desktop userland proxy inside a VM, so the "
+      "latency columns measure that path as much as they measure Octo. **CPU-ms per "
+      "request is the column to read here** — it is measured inside the container from "
+      "the same cumulative counter, and it does not travel through the proxy.")
+    a("")
+
+    latest = {}
+    for r in runs:  # already newest-first
+        key = (r.get("scenario"), r.get("target"), r.get("octoVersion"))
+        latest.setdefault(key, r)
+
+    scenarios = sorted({k[0] for k in latest if k[0]})
+    a("| Scenario | Octo | Native req/s | Container req/s | Native CPU-ms/req | "
+      "Container CPU-ms/req | Native p95 | Container p95 | Native idle RSS | Container idle RSS |")
+    a("|---|---|---|---|---|---|---|---|---|---|")
+    for sc in scenarios:
+        versions = sorted({k[2] for k in latest if k[0] == sc})
+        for v in versions:
+            nat = latest.get((sc, "native", v))
+            doc = latest.get((sc, "docker", v))
+            if not nat and not doc:
+                continue
+
+            def arm(run):
+                """Whichever arm this scenario publishes as its headline."""
+                if not run:
+                    return {}, {}
+                return (run.get("tuned") or run.get("baseline") or {},
+                        run.get("footprint") or {})
+
+            na, nf = arm(nat)
+            da, df = arm(doc)
+            a(f"| {sc} | {v} | {n(na.get('achievedRps'))} | {n(da.get('achievedRps'))} | "
+              f"{n(na.get('cpuMsPerRequest'), 3)} | {n(da.get('cpuMsPerRequest'), 3)} | "
+              f"{n(na.get('p95Ms'), 2, ' ms')} | {n(da.get('p95Ms'), 2, ' ms')} | "
+              f"{mib(nf.get('idleRssBytesMean'))} | {mib(df.get('idleRssBytesMean'))} |")
+    a("")
+    a("Throughput columns are the tuned arm where a scenario has one, so a missing "
+      "cell means that combination has not been run rather than that it failed.")
+    a("")
+
     a("---")
     a("")
     a("Numbers are the median repetition. See [METHODOLOGY.md](../METHODOLOGY.md) for how "
