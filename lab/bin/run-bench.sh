@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+# Orchestrate a full benchmark run: baseline and tuned, N repetitions each,
+# with resource sampling, and a generated report.
+#
+# Usage: run-bench.sh
+#
+# Environment:
+#   SCENARIO   scenario id (required)          TARGET     native|docker      (default native)
+#   HOST       host profile   (default local)  REPS       repetitions        (default 3)
+#   TEST       steady|capacity (default steady)
+#   VARIANTS   space separated (default "baseline tuned")
+#   RUN_LABEL  optional suffix appended to the run id
+
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+: "${SCENARIO:?SCENARIO is required, e.g. SCENARIO=001-template-page}"
+TARGET="${TARGET:-native}"
+REPS="${REPS:-3}"
+TEST="${TEST:-steady}"
+VARIANTS="${VARIANTS:-baseline tuned}"
+
+load_host "${HOST:-local}"
+load_scenario "$SCENARIO"
+
+DRIVER="$LAB_BIN/target-$TARGET.sh"
+[ -x "$DRIVER" ] || die "no driver for target '$TARGET'"
+
+# ---------------------------------------------------------------- preflight ---
+TARGET="$TARGET" HOST="${HOST:-local}" "$LAB_BIN/preflight.sh"
+
+step "guard: both variants render from the scenario's single integration.yaml"
+for v in $VARIANTS; do
+  python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" "$v" >/dev/null \
+    || die "cannot render the '$v' variant"
+done
+dim "  ok"
+
+# ------------------------------------------------------------------ run id ----
+VERSION="$(version_under_test "$TARGET")"
+RUN_ID="$(today)-${HOST_PROFILE}-${SCENARIO_ID}-${TARGET}-v${VERSION}"
+[ -n "${RUN_LABEL:-}" ] && RUN_ID="${RUN_ID}-${RUN_LABEL}"
+
+RUN_DIR="$REPO_ROOT/results/$RUN_ID"
+if [ -d "$RUN_DIR" ]; then
+  n=2
+  while [ -d "${RUN_DIR}-${n}" ]; do n=$((n+1)); done
+  RUN_DIR="${RUN_DIR}-${n}"; RUN_ID="$(basename "$RUN_DIR")"
+  warn "run id already existed; using $RUN_ID"
+fi
+mkdir -p "$RUN_DIR"
+
+step "run $RUN_ID"
+dim "  scenario=$SCENARIO_ID target=$TARGET version=$VERSION reps=$REPS test=$TEST"
+
+# ------------------------------------------------------------------ context ---
+SCENARIO_ID="$SCENARIO_ID" TARGET="$TARGET" "$LAB_BIN/capture-env.sh" "$RUN_DIR/env.json"
+
+STAGE="$REPO_ROOT/.stage/bench"
+
+# k6 flags shared by every invocation.
+k6_common=(
+  --no-usage-report
+  --summary-trend-stats 'avg,min,med,p(90),p(95),p(99),max'
+  -e "BASE_URL=$BASE_URL"
+  -e "ROUTE=$ROUTE"
+)
+
+# run_k6 <script> <summary-out> <log-out> [extra -e args...]
+run_k6() {
+  local script="$1" summary="$2" log="$3"; shift 3
+  k6 run "${k6_common[@]}" \
+    -e "SUMMARY_OUT=$summary" \
+    "$@" \
+    "$script" >"$log" 2>&1
+}
+
+# ------------------------------------------------------- smoke gate (rule 6) --
+step "smoke gate"
+SMOKE_STATE="$RUN_DIR/smoke"
+mkdir -p "$SMOKE_STATE"
+"$LAB_BIN/stage-config.sh" "$SCENARIO_DIR" baseline "$STAGE" >/dev/null
+
+smoke_cleanup() { "$DRIVER" stop "$SMOKE_STATE" 2>/dev/null || true; }
+trap smoke_cleanup EXIT
+"$DRIVER" start "$STAGE" "$SMOKE_STATE" >/dev/null
+wait_ready "${BASE_URL}${ROUTE}" 60 >/dev/null || {
+  cat "$SMOKE_STATE/octo.log" >&2 2>/dev/null || true
+  die "target never became ready"
+}
+if run_k6 "$SCENARIO_DIR/k6/smoke.js" "$SMOKE_STATE/summary.json" "$SMOKE_STATE/k6.log"; then
+  dim "  smoke passed"
+else
+  tail -30 "$SMOKE_STATE/k6.log" >&2
+  "$DRIVER" stop "$SMOKE_STATE"
+  die "smoke failed — a load run on a broken endpoint is not a result (AGENTS.md rule 6)"
+fi
+"$DRIVER" stop "$SMOKE_STATE"
+trap - EXIT
+
+# ---------------------------------------------------------------- footprint ---
+TARGET="$TARGET" ROUTE="$ROUTE" "$LAB_BIN/footprint.sh" "$SCENARIO_DIR" "$RUN_DIR/footprint.json"
+
+# ------------------------------------------------------------ measured runs ---
+for variant in $VARIANTS; do
+  for rep in $(seq 1 "$REPS"); do
+    cell="$RUN_DIR/${variant}-${TEST}-rep${rep}"
+    mkdir -p "$cell"
+    step "$variant / $TEST / rep $rep"
+
+    # The knobs are baked into the rendered config, not passed to the runtime:
+    # Octo's ${ENV} substitution does not reach root-flow fields.
+    if [ "$variant" = "tuned" ]; then
+      export FLOW_WORKERS="${TUNED_WORKERS:-}" FLOW_BUFFER="${TUNED_BUFFER:-}" FLOW_POOL="${TUNED_POOL:-}"
+    else
+      # Baseline renders with the knobs stripped, whatever is in the environment.
+      unset FLOW_WORKERS FLOW_BUFFER FLOW_POOL
+    fi
+
+    "$LAB_BIN/stage-config.sh" "$SCENARIO_DIR" "$variant" "$STAGE" >/dev/null
+    # Provenance: keep the exact config this cell ran, so a result can always be
+    # traced back to the YAML that produced it.
+    cp "$STAGE/octo.yaml" "$cell/config.yaml"
+
+    # Record the knobs as they ended up in the config, not as they were requested.
+    python3 - "$STAGE/octo.yaml" > "$cell/knobs.json" <<'PY'
+import json, re, sys
+knob = re.compile(r"^\s*(workers|buffer|pool):\s*(\d+)\s*$")
+found = {}
+for line in open(sys.argv[1]):
+    m = knob.match(line)
+    if m:
+        found[m.group(1)] = m.group(2)
+print(json.dumps({k: found.get(k, "runtime default") for k in ("workers", "buffer", "pool")}))
+PY
+    dim "  knobs: $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join(f"{k}={v}" for k,v in d.items()))' "$cell/knobs.json")"
+
+    cell_cleanup() {
+      "$LAB_BIN/sampler-stop.sh" "$cell" 2>/dev/null || true
+      "$DRIVER" stop "$cell" 2>/dev/null || true
+    }
+    trap cell_cleanup EXIT
+
+    start_ms="$(epoch_ms)"
+    ID="$("$DRIVER" start "$STAGE" "$cell")"
+    if ! wait_ready "${BASE_URL}${ROUTE}" 60 >/dev/null; then
+      cat "$cell/octo.log" >&2 2>/dev/null || true
+      die "target never became ready"
+    fi
+    ready_ms="$(epoch_ms)"
+    echo $(( ready_ms - start_ms )) > "$cell/cold-start-ms.txt"
+
+    # Warm-up, discarded: pays for Go runtime warm-up, connection setup, and any
+    # lazy initialisation so the measured window is steady state.
+    dim "  warm-up ${WARMUP_DURATION:-10s}"
+    run_k6 "$SCENARIO_DIR/k6/${TEST}.js" "$STAGE/warmup-summary.json" "$cell/warmup.log" \
+      -e "DURATION=${WARMUP_DURATION:-10s}" -e "RATE=${WARMUP_RATE:-$STEADY_RATE}" || \
+      warn "warm-up reported a non-zero exit; continuing"
+
+    "$LAB_BIN/sampler-start.sh" "$TARGET" "$ID" "$cell/resources.csv" "$cell" "${SAMPLE_INTERVAL:-1.0}"
+
+    dim "  measuring"
+    k6_exit=0
+    run_k6 "$SCENARIO_DIR/k6/${TEST}.js" "$cell/summary.json" "$cell/k6.log" \
+      -e "RATE=${STEADY_RATE:-500}" -e "DURATION=${STEADY_DURATION:-60s}" || k6_exit=$?
+    echo "$k6_exit" > "$cell/k6-exit.txt"
+    # A non-zero exit means a threshold was breached. That is data, not a crash:
+    # the report records it and the run continues.
+    [ "$k6_exit" -ne 0 ] && warn "k6 exited $k6_exit (threshold breach) — recorded"
+
+    "$LAB_BIN/sampler-stop.sh" "$cell"
+    "$DRIVER" stop "$cell"
+    trap - EXIT
+
+    rm -f "$cell/warmup.log"
+  done
+done
+
+# ------------------------------------------------------------------- report ---
+step "report"
+python3 "$LAB_BIN/report.py" "$RUN_DIR"
+python3 "$LAB_BIN/index.py" "$REPO_ROOT/results"
+
+step "done"
+info ""
+info "  $RUN_DIR/REPORT.md"

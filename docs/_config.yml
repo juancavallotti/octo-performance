@@ -1,0 +1,22 @@
+# GitHub Pages configuration — NOT YET ENABLED.
+#
+# Reports under results/ are already written with Jekyll front matter, so publishing
+# is a repository-settings change (Pages → source: main branch, /docs folder) plus a
+# copy step, not a restructuring exercise.
+
+title: Octo performance lab
+description: Reproducible, version-stamped benchmarks for the Octo integration runtime
+theme: jekyll-theme-primer
+
+# Results are generated artifacts; they are linked from index.md rather than
+# rendered as a collection, so nothing here needs to change when a run is added.
+exclude:
+  - Taskfile.yml
+  - lab/
+  - scenarios/
+  - .stage/
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge

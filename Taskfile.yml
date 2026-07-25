@@ -1,0 +1,155 @@
+version: '3'
+
+# The performance lab's entry points. The tasks are a thin, discoverable interface;
+# the substantive work lives in lab/bin/ because it involves background process
+# supervision, signal handling and PID discovery — things that belong in scripts
+# rather than in YAML.
+#
+# Every task takes SCENARIO and TARGET as variables, e.g.
+#   task bench SCENARIO=001-template-page TARGET=docker REPS=5
+
+vars:
+  # Defaults every task inherits; override on the command line.
+  SCENARIO: '{{.SCENARIO | default "001-template-page"}}'
+  TARGET: '{{.TARGET | default "native"}}'
+  HOST: '{{.HOST | default "local"}}'
+  REPS: '{{.REPS | default "3"}}'
+
+env:
+  # lab/bin scripts resolve everything relative to the repo root.
+  LAB_ROOT: '{{.ROOT_DIR}}'
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  preflight:
+    desc: 'Verify the lab has the tools it needs and print the versions that will be recorded'
+    cmds:
+      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} ./lab/bin/preflight.sh
+
+  smoke:
+    desc: 'Correctness gate: start the runtime and assert the endpoint serves what it should'
+    cmds:
+      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}}
+        VARIANT={{.VARIANT | default "baseline"}} ./lab/bin/smoke.sh
+
+  bench:
+    desc: 'Full benchmark: baseline vs tuned, N repetitions, resources sampled, report written'
+    cmds:
+      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} REPS={{.REPS}}
+        TEST={{.TEST | default "steady"}} ./lab/bin/run-bench.sh
+
+  capacity:
+    desc: 'Ramp the offered rate to find the knee, so STEADY_RATE can be chosen honestly'
+    cmds:
+      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} REPS=1 TEST=capacity
+        VARIANTS=baseline ./lab/bin/run-bench.sh
+
+  sweep:
+    desc: 'Grid-search workers/buffer/pool and name the configuration worth publishing as tuned'
+    cmds:
+      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} ./lab/bin/sweep.sh
+
+  footprint:
+    desc: 'Measure only the runtime footprint: artifact size, cold start, idle RSS, idle CPU'
+    cmds:
+      - |
+        set -e
+        set -a; . ./lab/hosts/{{.HOST}}.env; . ./scenarios/{{.SCENARIO}}/scenario.env; set +a
+        out="$(mktemp -t octo-footprint)"
+        TARGET={{.TARGET}} ./lab/bin/footprint.sh ./scenarios/{{.SCENARIO}} "$out"
+        cat "$out"
+        rm -f "$out"
+
+  report:
+    desc: 'Regenerate REPORT.md for one run (set RUN to the run id)'
+    requires:
+      vars: [RUN]
+    cmds:
+      - python3 ./lab/bin/report.py ./results/{{.RUN}}
+      - python3 ./lab/bin/index.py ./results
+
+  index:
+    desc: 'Regenerate results/index.md from every run.json'
+    cmds:
+      - python3 ./lab/bin/index.py ./results
+
+  verify:
+    desc: 'Check the lab itself: script syntax, Python helpers, and variant rendering'
+    cmds:
+      - task: verify:shell
+      - task: verify:python
+      - task: verify:render
+
+  verify:shell:
+    desc: Syntax-check every shell script in lab/bin
+    silent: true
+    cmds:
+      - |
+        set -e
+        for f in lab/bin/*.sh; do bash -n "$f" || exit 1; done
+        echo "✓ shell scripts parse"
+
+  verify:python:
+    desc: Byte-compile the Python helpers
+    silent: true
+    cmds:
+      - |
+        set -e
+        python3 -m py_compile lab/bin/*.py
+        echo "✓ python helpers compile"
+
+  verify:render:
+    desc: 'Assert every scenario renders both arms, and that baseline carries no tuning knobs'
+    silent: true
+    cmds:
+      - |
+        set -e
+        for d in scenarios/*/; do
+          src="$d/octo/integration.yaml"
+          [ -f "$src" ] || continue
+          for variant in baseline tuned; do
+            python3 lab/bin/render-config.py "$src" "$variant" >/dev/null || exit 1
+          done
+          echo "✓ $(basename "$d") renders baseline (knobs stripped) and tuned"
+        done
+
+  diff:
+    desc: 'Show what actually differs between the two arms of a scenario'
+    silent: true
+    cmds:
+      - |
+        src=scenarios/{{.SCENARIO}}/octo/integration.yaml
+        diff -u \
+          <(python3 lab/bin/render-config.py "$src" baseline | grep -v '^#') \
+          <(python3 lab/bin/render-config.py "$src" tuned    | grep -v '^#') \
+          || true
+
+  serve:
+    desc: 'Run the scenario locally so you can curl it (Ctrl-C to stop) — not a benchmark'
+    cmds:
+      - |
+        set -e
+        set -a; . ./lab/hosts/{{.HOST}}.env; . ./scenarios/{{.SCENARIO}}/scenario.env; set +a
+        ./lab/bin/stage-config.sh ./scenarios/{{.SCENARIO}} {{.VARIANT | default "baseline"}} .stage/serve
+        echo "▶ serving {{.SCENARIO}} ({{.VARIANT | default "baseline"}}) on ${BASE_URL}${ROUTE}"
+        exec octo run --config .stage/serve
+
+  clean:
+    desc: Remove staged configs and scratch state (results are never touched)
+    cmds:
+      - rm -rf .stage
+      - echo "✓ staging cleaned; results/ untouched"
+
+  clean:results:
+    desc: Delete ALL recorded results
+    prompt: This permanently deletes every recorded benchmark result. Continue?
+    cmds:
+      - rm -rf results
+      - mkdir -p results
+      - python3 ./lab/bin/index.py ./results
+      - echo "✓ results cleared"

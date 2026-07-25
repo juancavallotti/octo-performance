@@ -1,0 +1,19 @@
+.DS_Store
+*.swp
+
+# Staged single-variant configs built by lab/bin/stage-config.sh
+.stage/
+
+# Local scratch
+.scratch/
+tmp/
+
+# k6 raw per-request output (huge); we keep handleSummary JSON instead
+*.k6-raw.json
+
+# Local host profile overrides that are not meant to be shared
+lab/hosts/*.local.env
+
+# Python bytecode
+__pycache__/
+*.pyc

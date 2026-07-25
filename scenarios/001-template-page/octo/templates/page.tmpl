@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Octo performance lab — {{ vars.name }}</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+         margin: 0; padding: 2.5rem 1.25rem; background: #fbfbfd; color: #16181d; }
+  @media (prefers-color-scheme: dark) { body { background: #0e1014; color: #e7e9ee; } }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.9rem; letter-spacing: -0.02em; margin: 0 0 0.35rem; }
+  .sub { opacity: 0.68; margin: 0 0 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1.25rem 0; font-size: 0.94rem; }
+  th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid rgba(128,128,128,0.22); }
+  th { font-weight: 600; opacity: 0.72; width: 42%; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em; }
+  .card { border: 1px solid rgba(128,128,128,0.22); border-radius: 10px; padding: 1.1rem 1.35rem; margin: 1.1rem 0; }
+  footer { margin-top: 2.5rem; font-size: 0.85rem; opacity: 0.6; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Hello, {{ vars.name }}</h1>
+  <p class="sub">Rendered by an Octo <code>template-resource</code> block and served as raw
+  <code>text/html</code> — no JSON anywhere in the response.</p>
+
+  <div class="card">
+    <h2>Request</h2>
+    <table>
+      <tr><th>Path parameter <code>name</code></th><td>{{ vars.name }}</td></tr>
+      <tr><th>Name length</th><td>{{ size(vars.name) }} characters</td></tr>
+      <tr><th>Looks like a hostname</th><td>{{ vars.name.matches("^[a-z0-9-]+$") }}</td></tr>
+      <tr><th>Starts with &ldquo;oc&rdquo;</th><td>{{ vars.name.startsWith("oc") }}</td></tr>
+      <tr><th>Event id</th><td><code>{{ eventID }}</code></td></tr>
+      <tr><th>Rendered at</th><td>{{ now }}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>What this page measures</h2>
+    <p>This is scenario <code>001-template-page</code> of the Octo performance lab. Each request
+    exercises the full inbound path: the HTTP server connector accepts the connection, the HTTP
+    route source matches <code>/page/&#123;name&#125;</code> and lifts the path parameter into the
+    message variables, a flow worker picks the message off the channel, and the
+    <code>template-resource</code> block evaluates every CEL placeholder in this document before
+    the response is written back as raw content.</p>
+    <p>Because there is no database, no outbound call, and no logging in the hot path, the number
+    that comes out is close to the runtime's floor for an HTTP-in, HTML-out integration. That
+    makes it a good regression canary: if this gets slower between Octo versions, something in the
+    core request path got slower.</p>
+    <table>
+      <tr><th>Service</th><td>perf-template-page</td></tr>
+      <tr><th>Connector</th><td><code>http</code> (HTTP Server)</td></tr>
+      <tr><th>Source</th><td><code>http</code> route <code>/page/&#123;name&#125;</code></td></tr>
+      <tr><th>Block</th><td><code>template-resource</code>, raw body, <code>text/html</code></td></tr>
+      <tr><th>Greeting echo</th><td>{{ "hello " + vars.name + ", you are visitor number " + string(size(vars.name) * 7) }}</td></tr>
+      <tr><th>Correlation id</th><td><code>{{ correlationID }}</code></td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Tuning knobs under comparison</h2>
+    <p>The baseline arm of this benchmark declares none of these and takes Octo's defaults. The
+    tuned arm sets them explicitly, and <code>task sweep</code> grid-searches them.</p>
+    <table>
+      <tr><th><code>workers</code></th><td>Consumers pulling from this flow's message channel. Default 8.</td></tr>
+      <tr><th><code>buffer</code></th><td>Channel depth before publishers block. Default 64.</td></tr>
+      <tr><th><code>pool</code></th><td>Shared worker pool for concurrent composites. Default 8.</td></tr>
+    </table>
+  </div>
+
+  <footer>
+    octo-performance · scenario 001 · generated {{ now }} for {{ vars.name }}
+  </footer>
+</main>
+</body>
+</html>
