@@ -1,0 +1,59 @@
+# GENERATED — do not edit. Edit the scenario's integration.yaml instead.
+# Rendered from integration.yaml as the TUNED variant.
+# knobs: workers=32, buffer=64, pool=8.
+
+# Scenario 001 — template page. The single source of truth for this integration.
+#
+# lab/bin/render-config.py derives both benchmark arms from this one file:
+#
+#   baseline — workers/buffer/pool are STRIPPED, so the runtime uses its own
+#              compiled-in defaults. Stripping rather than writing 8/64/8 keeps the
+#              baseline honest across Octo versions: if a default changes, this arm
+#              follows it, which is what "out of the box" is supposed to mean.
+#   tuned    — the knobs below are rewritten to the values being tested.
+#
+# The knobs are plain integers, NOT ${FLOW_WORKERS}-style placeholders: verified
+# against Octo 0.4.2, ${...} substitution does not reach root-flow fields and fails
+# at load with "cannot unmarshal !!str `${FLOW_...` into int". Substitution inside
+# connector/block `settings` — such as the port below — works normally.
+
+service:
+  name: perf-template-page
+  environment: benchmark
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+resources:
+  templates:
+    - resource: templates/page.tmpl
+      as: page
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+flows:
+  - name: page
+    # Rendered per arm. The values here apply only when running this file directly
+    # (`task serve`); benchmarks always go through render-config.py.
+    workers: 32
+    buffer: 64
+    pool: 8
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /page/{name}
+    process:
+      # Renders the template into a raw-content body so the HTTP source writes it
+      # verbatim as text/html. No log block: nothing runs in the hot path that is
+      # not part of what we are measuring.
+      - type: template-resource
+        settings:
+          id: page
+          rawBody: true
+          contentType: text/html; charset=utf-8

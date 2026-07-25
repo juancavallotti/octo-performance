@@ -1,0 +1,5 @@
+time=2026-07-25T10:54:45.957-07:00 level=INFO msg="runtime services ready" module=standalone
+time=2026-07-25T10:54:45.958-07:00 level=INFO msg="resolved environment variables" count=1 declared=[HTTP_PORT]
+time=2026-07-25T10:54:45.960-07:00 level=INFO msg="starting runtime" version=0.4.2 connectors=1 flows=1
+time=2026-07-25T10:54:45.960-07:00 level=INFO msg="starting connector" connector=api type=http
+time=2026-07-25T10:54:45.960-07:00 level=ERROR msg="cli stopped with error" error="start connector \"api\": http connector listen on 0.0.0.0:8080: listen tcp 0.0.0.0:8080: bind: address already in use"

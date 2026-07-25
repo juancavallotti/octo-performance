@@ -29,14 +29,28 @@ export function targetUrl() {
 }
 
 /**
- * Constant arrival rate — the headline comparison.
+ * Size the VU pool from Little's law: concurrency = arrival rate × service time.
  *
- * preAllocatedVUs is generous relative to the rate: k6 can only start an
- * iteration if a VU is free, and starving the pool would show up as dropped
- * iterations caused by the generator rather than by the server.
+ * This matters more than it looks. k6 initialises every pre-allocated VU up front,
+ * and on a host shared with the server under test an over-sized pool steals CPU
+ * and memory from the thing being measured — biasing the result downward. A naive
+ * "VUs = rate × 0.6" allocates 7200 VUs at 12k req/s for a workload that actually
+ * needs about 15.
+ *
+ * The pool is still generously over-provisioned (4× headroom, and maxVUs allows a
+ * 10× latency excursion) because starving it would surface as dropped iterations
+ * caused by the generator rather than by the server — which would be a lie in the
+ * opposite direction.
  */
+function poolFor(rate) {
+  const latencySeconds = envInt('EXPECTED_LATENCY_MS', 5) / 1000;
+  const needed = rate * latencySeconds;
+  const preAllocatedVUs = Math.max(20, Math.ceil(needed * 4));
+  return { preAllocatedVUs, maxVUs: Math.max(200, preAllocatedVUs * 10) };
+}
+
+/** Constant arrival rate — the headline comparison. */
 export function steadyOptions({ rate, duration, thresholds }) {
-  const vus = Math.max(50, Math.ceil(rate * 0.6));
   return {
     discardResponseBodies: true,
     scenarios: {
@@ -45,8 +59,7 @@ export function steadyOptions({ rate, duration, thresholds }) {
         rate,
         timeUnit: '1s',
         duration,
-        preAllocatedVUs: vus,
-        maxVUs: vus * 4,
+        ...poolFor(rate),
         gracefulStop: '10s',
       },
     },
@@ -63,7 +76,6 @@ export function steadyOptions({ rate, duration, thresholds }) {
  */
 export function capacityOptions({ startRate, stages, thresholds }) {
   const peak = stages.reduce((m, s) => Math.max(m, s.target), startRate);
-  const vus = Math.max(100, Math.ceil(peak * 0.6));
   return {
     discardResponseBodies: true,
     scenarios: {
@@ -72,8 +84,7 @@ export function capacityOptions({ startRate, stages, thresholds }) {
         startRate,
         timeUnit: '1s',
         stages,
-        preAllocatedVUs: vus,
-        maxVUs: vus * 4,
+        ...poolFor(peak),
         gracefulStop: '10s',
       },
     },
@@ -101,12 +112,20 @@ export function smokeOptions({ iterations }) {
   };
 }
 
+/**
+ * Thresholds are per-scenario: a bound loose enough for every workload is a bound
+ * that catches nothing. Set THRESHOLD_P95_MS / THRESHOLD_P99_MS in scenario.env to
+ * something the scenario should actually hold at its steady rate.
+ */
 export function defaultThresholds() {
   return {
     // A dropped iteration means the offered rate exceeded what could be started;
     // the run is then a saturation measurement, not a latency measurement.
     dropped_iterations: ['count==0'],
     http_req_failed: ['rate<0.001'],
-    http_req_duration: ['p(95)<500', 'p(99)<1000'],
+    http_req_duration: [
+      `p(95)<${envInt('THRESHOLD_P95_MS', 250)}`,
+      `p(99)<${envInt('THRESHOLD_P99_MS', 500)}`,
+    ],
   };
 }
