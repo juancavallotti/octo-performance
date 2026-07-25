@@ -11,7 +11,7 @@ Read [METHODOLOGY.md](METHODOLOGY.md) before interpreting or producing any resul
 
 | Path | What it is |
 |---|---|
-| `lab/bin/` | The harness. Shell scripts + two Python generators. No dependencies beyond coreutils, `python3`, `curl`, `k6`, and optionally `docker`. |
+| `lab/bin/` | The harness. Shell scripts + Python helpers (render, sample, report, index). No dependencies beyond coreutils, `python3`, `curl`, `k6`, and optionally `docker`. |
 | `lab/k6/lib/` | Shared k6 helpers: executor/threshold presets and the `handleSummary` that writes `summary.json`. |
 | `lab/hosts/` | One `.env` per machine that can run the lab. Defines `HOST_PROFILE` and `BASE_URL`. |
 | `scenarios/<id>-<slug>/` | One benchmark scenario: its Octo configs, its template/data assets, its k6 tests, and a README describing the integration. |
@@ -28,15 +28,16 @@ These are not style preferences. Breaking one invalidates the numbers.
 1. **No version, no result.** Every run writes `env.json` recording the Octo version under test
    (and, for the container target, the image digest). A result that cannot be attributed to a
    version cannot be used for regression tracking.
-2. **One scenario, one config.** A scenario declares exactly one `octo/integration.yaml`. Both
-   benchmark arms are *derived* from it by `lab/bin/render-config.py`, so they cannot drift:
-   `tuned` is emitted as-is with the knobs supplied from the environment, `baseline` has the knobs
-   and their `FLOW_*` declarations stripped out.
+2. **One scenario, one config.** A scenario declares exactly one `octo/integration.yaml` and names
+   its knobs in `scenario.env` as `TUNABLES`. Both arms are *derived* from that file by
+   `lab/bin/render-config.py`, so they cannot drift: `baseline` has every tunable stripped,
+   `tuned` has them rewritten to the requested values. Knobs are plain integers, **not**
+   `${ENV}` placeholders — substitution does not reach root-flow fields (see below).
 3. **Baseline strips, it never hardcodes.** Writing `workers: 8` into a baseline config would
    freeze it at today's default and silently stop tracking the real one. Stripping the key makes
    the runtime fall back to whatever it actually ships with, so if a future Octo version changes a
    default, the baseline arm follows it — which is exactly the regression this lab exists to catch.
-   `render-config.py` verifies the rendered baseline contains no knob and no `FLOW_` reference.
+   `render-config.py` verifies the rendered baseline declares no tunable.
 4. **Never hand-edit anything under `results/`.** If a number looks wrong, re-run. Editing results
    destroys the only thing that makes them worth publishing.
 5. **Compare within a target.** `native` vs `docker` numbers on macOS are dominated by Docker
@@ -67,7 +68,9 @@ task index                                           # regenerate results/index.
 ```
 
 Common variables: `TARGET=native|docker`, `REPS=1`, `HOST=local`, `TEST=steady|capacity`,
-`TUNED_WORKERS=16 TUNED_BUFFER=256 TUNED_POOL=8`, `OCTO_IMAGE=juancavallotti/octo-runtime:0.4.3`.
+`TUNED_WORKERS=16 TUNED_BUFFER=256 TUNED_POOL=8`, `OCTO_IMAGE=juancavallotti/octo-runtime:0.4.3`,
+`COOLDOWN_SECONDS=15`. A knob the Taskfile does not forward works as an environment prefix,
+since task inherits the environment: `TUNED_MAXOPENCONNS=64 task bench SCENARIO=...`.
 
 **Benchmarking a specific build.** `OCTO_BIN` points the native target at a particular binary
 instead of whatever is on `PATH`, which is how two releases get compared on the same host:
@@ -94,10 +97,15 @@ session on it.
 1. `scenarios/<nnn>-<slug>/README.md` — describe the integration: what it exercises, which
    connectors and blocks, what the request and response look like, why it is interesting. The
    methodology requires the integration to be described, so this is not optional.
-2. `octo/integration.yaml` — the flow, with `workers`/`buffer`/`pool` on the root flow written as
-   `${FLOW_WORKERS}` / `${FLOW_BUFFER}` / `${FLOW_POOL}`. Declare them under `env:` with sensible
-   `default:` values; those defaults only ever apply to the tuned arm, since baseline strips them.
-3. `scenario.env` — `ROUTE`, `STEADY_RATE`, durations, and the sweep grid.
+2. `octo/integration.yaml` — the flow, with its knobs written as **plain integers**
+   (`workers: 8`). Do not use `${FLOW_WORKERS}`-style placeholders: `${ENV}` substitution does
+   not reach root-flow fields and fails at load. Declare each knob in exactly **one** place, or
+   the renderer — which rewrites every occurrence of a name — will set them all together.
+3. `scenario.env` — `ROUTE`, `TUNABLES` (default `workers buffer pool`; add e.g. `maxOpenConns`
+   or `listeners` where the scenario exposes them), `STEADY_RATE`, durations, and the sweep grid.
+   Set `READY_ROUTE` if the measured route is a POST or otherwise cannot answer a bare GET.
+   If the scenario needs infrastructure, add executable `setup.sh` / `teardown.sh` beside it;
+   the harness runs them outside the measured window.
 4. `k6/smoke.js`, `k6/steady.js`, `k6/capacity.js` — import from `lab/k6/lib/`. Always read
    `BASE_URL` from the environment; never hardcode a host.
 5. `task verify:render SCENARIO=<id>` to confirm both arms render, and `task diff SCENARIO=<id>`
