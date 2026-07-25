@@ -45,6 +45,10 @@ trap 'scenario_teardown' EXIT
 # ------------------------------------------------------------------ run id ----
 VERSION="$(version_under_test "$TARGET")"
 RUN_ID="$(today)-${HOST_PROFILE}-${SCENARIO_ID}-${TARGET}-v${VERSION}"
+# A capped run is a different deployment, not a different day: without this in the
+# id, a 1-CPU run and an unconstrained one collide and the second is filed as a
+# repeat of the first.
+[ -n "${CPU_LIMIT:-}" ] && RUN_ID="${RUN_ID}-${CPU_LIMIT}cpu"
 [ -n "${RUN_LABEL:-}" ] && RUN_ID="${RUN_ID}-${RUN_LABEL}"
 
 RUN_DIR="$REPO_ROOT/results/$RUN_ID"

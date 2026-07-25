@@ -56,6 +56,7 @@ tasks:
         TUNED_MAXOPENCONNS={{.TUNED_MAXOPENCONNS | default ""}}
         TUNED_MAXIDLECONNS={{.TUNED_MAXIDLECONNS | default ""}}
         TUNED_LISTENERS={{.TUNED_LISTENERS | default ""}}
+        CPU_LIMIT={{.CPU_LIMIT | default ""}}
         ./lab/bin/run-bench.sh
 
   capacity:
@@ -63,6 +64,21 @@ tasks:
     cmds:
       - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} REPS=1 TEST=capacity
         VARIANTS=baseline ./lab/bin/run-bench.sh
+
+  vuramp:
+    desc: 'Closed-model VU sweep — the only test whose numbers are comparable to published vendor benchmarks'
+    cmds:
+      # Closed model on purpose, and only here. See COMPARISON.md: every published
+      # a commercial platform and Camel figure is throughput against a fixed virtual-user
+      # population, and a "knee point" only exists under that model.
+      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}}
+        VARIANT={{.VARIANT | default "baseline"}}
+        CPU_LIMIT={{.CPU_LIMIT | default ""}}
+        VU_LEVELS={{.VU_LEVELS | default ""}}
+        TUNED_WORKERS={{.TUNED_WORKERS | default ""}}
+        TUNED_BUFFER={{.TUNED_BUFFER | default ""}}
+        TUNED_POOL={{.TUNED_POOL | default ""}}
+        ./lab/bin/run-vuramp.sh
 
   sweep:
     desc: 'Grid-search workers/buffer/pool and name the configuration worth publishing as tuned'

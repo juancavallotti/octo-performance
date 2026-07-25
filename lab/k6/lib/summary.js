@@ -65,7 +65,13 @@ function collectThresholds(metrics) {
 
 /**
  * @param {object} data      k6 summary data
- * @param {object} extra     { test, offeredRate }
+ * @param {object} extra     { test, offeredRate, loadModel, vus }
+ *
+ * `loadModel` is recorded rather than inferred because it is the one property that
+ * makes two throughput numbers incomparable no matter how alike they look. An open
+ * model reports what the server was *asked* for; a closed model reports what a
+ * fixed population of clients could *extract*. Defaulting to "open" is safe: every
+ * test in the lab is open except the cross-vendor VU steps, which set it.
  */
 export function buildSummary(data, extra = {}) {
   const m = data.metrics || {};
@@ -73,6 +79,8 @@ export function buildSummary(data, extra = {}) {
 
   return {
     test: extra.test || __ENV.TEST_NAME || 'unknown',
+    loadModel: extra.loadModel || 'open',
+    vus: extra.vus !== undefined ? extra.vus : null,
     offeredRate: extra.offeredRate !== undefined ? extra.offeredRate : null,
     durationSeconds: durationMs / 1000,
     metrics: {

@@ -156,6 +156,10 @@ if target == "docker":
         # than the host, which is why cross-target comparison is only indicative.
         "allocatedCpus":        i("DOCKER_NCPU"),
         "allocatedMemoryBytes": i("DOCKER_MEM_BYTES"),
+        # The deliberate cap, when one was requested. Present only for cross-vendor
+        # runs, where the point is to be constrained the way the other vendor was.
+        "cpuLimit":       os.environ.get("CPU_LIMIT") or None,
+        "memLimit":  os.environ.get("MEM_LIMIT") or None,
     }
 
 with open(os.environ["OUT"], "w") as f:

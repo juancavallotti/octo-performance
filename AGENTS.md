@@ -144,19 +144,35 @@ Recorded here so nobody re-discovers them:
 
 ## Comparing against other runtimes
 
-Published numbers from Apache Camel, Quarkus, and a commercial platform are recorded in the Notion page. Two
-rules when using them:
+[COMPARISON.md](COMPARISON.md) is the authority: what each vendor published, under what
+conditions, which scenarios have been rebuilt, and what may be claimed. Read it before writing
+any sentence that puts an Octo number next to somebody else's. The short form:
 
-1. **Only the footprint comparison is currently defensible.** Idle memory and cold start differ
-   by an order of magnitude and survive the methodological differences. Throughput does not:
-   Camel's figures come from a 24-core Xeon server, ours from a 10-core laptop that is also
-   running the load generator.
-2. **Match the scenario before claiming anything.** Camel's headline 0.345 ms is *in-process
-   routing latency*, not an end-to-end HTTP request, so it is not comparable to scenario 001's
-   0.09 ms p50 however similar the magnitudes look.
+1. **Load model is not a detail.** Every published vendor benchmark is closed-model — throughput
+   against a fixed virtual-user population — and their "knee point" is an artifact of that model.
+   This lab is open-model everywhere except `task vuramp`, which exists for exactly this purpose.
+   Never put an open-model number and a closed-model number in the same table.
+2. **Only footprint and CPU-ms/request are defensible today.** Throughput is not: theirs comes
+   from dedicated servers with dedicated load generators, ours from a laptop running both.
+3. **Match the scenario before claiming anything.** Camel's headline 0.345 ms is *in-process
+   routing latency*, not an end-to-end HTTP request.
+4. **Record what could not be built.** Four of a commercial platform's six standalone use cases have no Octo
+   equivalent. Those gaps belong in COMPARISON.md and in Notion — they are findings, not
+   omissions.
 
-Planned scenarios exist specifically to make the comparison arguable — a content-based router
-(Camel's headline benchmark), an HTTP proxy passthrough (the canonical API-gateway shape most
-the platform numbers describe), and a payload-size ladder (the platform benchmarks payload transformation at 1 KB / 100 KB /
-1 MB). All of them want a Linux x86 host with a separate load generator before the results mean
-much.
+`CPU_LIMIT=1 task bench ...` caps the container the way a commercial platform sizes a a hosted platform worker, and
+stamps the cap into the run id. Use it whenever the point of a run is comparability rather than
+Octo-against-itself.
+
+## Probing by hand
+
+Ad-hoc measurement outside the harness is fine for forming a hypothesis and is **not** a result.
+If you do it, two non-negotiables, both learned the hard way in one sitting:
+
+- **Assert the port is free before starting, and that the runtime logged `runtime ready`.** A
+  stale process holding 8080 does not fail loudly; it answers 404 quickly, which reads as
+  excellent throughput.
+- **Read `http_req_failed` before reading `http_reqs`.** A run that failed 100% of its requests
+  reports a throughput number like any other.
+
+Anything worth publishing gets re-measured through `task bench` or `task vuramp`.

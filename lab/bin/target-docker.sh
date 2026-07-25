@@ -9,6 +9,12 @@
 # Cumulative CPU comes from the Docker Engine API (cpu_stats.cpu_usage.total_usage,
 # nanoseconds) rather than from `docker stats` percentages, so the container target
 # is measured with the same rigour as the native one.
+#
+# CPU_LIMIT sizes the container the way a commercial platform sizes a a hosted platform worker. Their report
+# defines a CPU as "the number of CPU cores available to a given deployment" and
+# publishes every number at 0.1, 1, and 4 CPUs; `--cpus` is the same quantity, so
+# running at CPU_LIMIT=1 puts our numbers on their x-axis instead of on our laptop's.
+# See COMPARISON.md.
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
@@ -34,6 +40,30 @@ start() {
   local env_args=()
   [ -n "${LOG_LEVEL:-}" ] && env_args+=(-e "LOG_LEVEL=$LOG_LEVEL")
 
+  # Deployment envelope. Unset means "whatever the host has", which is the right
+  # default for tracking Octo against itself; CPU_LIMIT is for the cross-vendor
+  # comparison, where the envelope has to match the one the other vendor published.
+  local limit_args=()
+  if [ -n "${CPU_LIMIT:-}" ]; then
+    limit_args+=(--cpus "$CPU_LIMIT")
+    local ncpu
+    ncpu="$(docker info --format '{{.NCPU}}' 2>/dev/null || echo 0)"
+    if [ "$ncpu" != "0" ] && awk "BEGIN{exit !($CPU_LIMIT > $ncpu)}"; then
+      warn "CPU_LIMIT=$CPU_LIMIT exceeds the ${ncpu} CPUs the daemon has; the limit will not bind"
+    fi
+    # Sized from a commercial platform's own instance table so the memory envelope matches the
+    # CPU one: 0.1 CPU was a t3.micro (1 GB), 1 CPU a t3.medium (4 GB), and the
+    # 4 CPU on-premise case a c5n.xlarge (10.5 GB).
+    if [ -z "${MEM_LIMIT:-}" ]; then
+      case "$CPU_LIMIT" in
+        0.1) MEM_LIMIT=1g ;;
+        1)   MEM_LIMIT=4g ;;
+        4)   MEM_LIMIT=10g ;;
+      esac
+    fi
+    [ -n "${MEM_LIMIT:-}" ] && limit_args+=(--memory "$MEM_LIMIT")
+  fi
+
   # The runtime binds 8080 inside the container; publish it on the host port the
   # host profile declares.
   local cid
@@ -42,11 +72,18 @@ start() {
     -p "${HTTP_PORT:-8080}:8080" \
     -e HTTP_PORT=8080 \
     ${env_args[@]+"${env_args[@]}"} \
+    ${limit_args[@]+"${limit_args[@]}"} \
     -v "$config_dir:/etc/octo/integrations:ro" \
     "$image")" || die "docker run failed"
 
   echo "$cid" > "$state/pid"
   echo "$image" > "$state/image"
+  # What the container was actually given, read back from the daemon rather than
+  # from what we asked for — a limit that silently failed to apply would otherwise
+  # be published as though it held.
+  docker inspect "$cid" --format \
+    '{"nanoCpus":{{.HostConfig.NanoCpus}},"cpuQuota":{{.HostConfig.CpuQuota}},"cpuPeriod":{{.HostConfig.CpuPeriod}},"memoryBytes":{{.HostConfig.Memory}}}' \
+    > "$state/limits.json" 2>/dev/null || true
   printf '%s\n' "$cid"
 }
 

@@ -80,9 +80,28 @@ badly wrong for anything that waits on I/O.
 | [002-fanout-transform](scenarios/002-fanout-transform/) | `fork` fan-out, `multi-transform`, mapped `foreach`, and `flow-ref` composition. The first scenario that actually schedules work on `pool`. |
 | [003-postgres-crud](scenarios/003-postgres-crud/) | Write, read back, and delete a row per request against containerised Postgres. The first flow that **blocks** — where `workers` meets `maxOpenConns`. |
 | [004-queue-roundtrip](scenarios/004-queue-roundtrip/) | Two flows joined by an internal queue with `awaitReply`. The only scenario with a knob on **both** sides: producer `workers` against consumer `listeners`. |
+| [005-http-proxy](scenarios/005-http-proxy/) | Pass a request to a backend that takes 70 ms. Built to a commercial platform's published spec. Out of the box this caps at **108 req/s**; tuned it reaches 1,780. |
+| [006-json-transform](scenarios/006-json-transform/) | Reshape a JSON collection, two ways. Mirrors a commercial platform's payload transformation case — and shows `foreach mode: map` is **quadratic** in record count. |
 
 More scenarios — other connectors, database-backed flows, outbound REST calls, forked composites —
 get added over time. See [AGENTS.md](AGENTS.md) for the checklist.
+
+## Standing against other runtimes
+
+[COMPARISON.md](COMPARISON.md) records what a commercial platform, Apache Camel, and Workato have actually
+published, under what conditions, and which of their scenarios have been rebuilt here.
+
+Two things are worth knowing before reading any cross-vendor number:
+
+- Published vendor benchmarks are **closed-model** (throughput against a fixed virtual-user
+  population). This lab is open-model everywhere except `task vuramp`, which exists solely to
+  draw a curve on their axes.
+- Only **footprint** and **CPU-ms per request** are defensible comparisons today. Throughput is
+  not, until the lab runs on a Linux x86 host with a separate load generator.
+
+Four of a commercial platform's six standalone use cases cannot be built in Octo at all — no CSV or XML
+parser, no policy engine, no batch component, no Kafka connector. That is a more useful finding
+about where Octo sits than any throughput figure.
 
 ## Layout
 
