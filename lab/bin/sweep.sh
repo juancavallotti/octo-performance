@@ -28,7 +28,8 @@ DRIVER="$LAB_BIN/target-$TARGET.sh"
 [ -x "$DRIVER" ] || die "no driver for target '$TARGET'"
 
 TARGET="$TARGET" HOST="${HOST:-local}" "$LAB_BIN/preflight.sh"
-python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" tuned >/dev/null \
+python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" tuned \
+  --tunables "${TUNABLES:-workers buffer pool}" >/dev/null \
   || die "cannot render the tuned variant — the scenario's root flow declares no tuning knobs"
 
 VERSION="$(version_under_test "$TARGET")"
@@ -66,7 +67,7 @@ for w in $WORKERS_LIST; do
 
     # Re-render per combination: the knobs are baked into the config, because
     # Octo's ${ENV} substitution does not reach root-flow fields.
-    export FLOW_WORKERS="$w" FLOW_BUFFER="$b" FLOW_POOL="$p"
+    export TUNED_WORKERS="$w" TUNED_BUFFER="$b" TUNED_POOL="$p"
     "$LAB_BIN/stage-config.sh" "$SCENARIO_DIR" tuned "$STAGE" >/dev/null
     cp "$STAGE/octo.yaml" "$cell/config.yaml"
 
@@ -104,6 +105,11 @@ for w in $WORKERS_LIST; do
     "$LAB_BIN/sampler-stop.sh" "$cell"
     "$DRIVER" stop "$cell"
     trap - EXIT
+
+    # Mandatory between combinations: without it a sweep measures the order in
+    # which combinations happened to run as much as the combinations themselves.
+    # See METHODOLOGY.md.
+    sleep "${COOLDOWN_SECONDS:-15}"
   done
  done
 done

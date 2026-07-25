@@ -1,0 +1,25 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /Users/juancavallotti/Documents/development/octo-performance/scenarios/001-template-page/k6/smoke.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 1 max VUs, 1m30s max duration (incl. graceful stop):
+              * smoke: 30 iterations shared among 1 VUs (maxDuration: 1m0s, gracefulStop: 30s)
+
+
+  http_reqs                    30 (1178.55/s)
+  http_req_duration            med=0.25ms p95=0.42ms p99=1.47ms max=1.90ms
+  http_req_waiting             p95=0.38ms
+  http_req_failed              0.000%
+  checks                       210 passed, 0 failed
+
+
+running (0m00.0s), 0/1 VUs, 30 complete and 0 interrupted iterations
+smoke ✓ [ 100% ] 1 VUs  0m00.0s/1m0s  30/30 shared iters

@@ -192,12 +192,15 @@ def median_cell(cells):
 
 
 def fmt_bytes(n):
+    """Byte sizes, signed — RSS drift is meaningfully negative when memory is released."""
     if n is None:
         return "n/a"
+    sign = "-" if n < 0 else ""
+    n = abs(n)
     for unit, div in (("GiB", 1073741824), ("MiB", 1048576), ("KiB", 1024)):
         if n >= div:
-            return f"{n / div:.1f} {unit}"
-    return f"{n} B"
+            return f"{sign}{n / div:.1f} {unit}"
+    return f"{sign}{n} B"
 
 
 def fmt_num(n, digits=1, suffix=""):

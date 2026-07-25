@@ -36,8 +36,10 @@ trap cleanup EXIT
 ARTIFACT=""; ARTIFACT_BYTES=0
 case "$TARGET" in
   native)
-    ARTIFACT="$(command -v octo || true)"
-    [ -n "$ARTIFACT" ] && ARTIFACT_BYTES="$(wc -c < "$ARTIFACT" | tr -d ' ')"
+    # Must honour OCTO_BIN, or the footprint describes a different build than the
+    # one actually under test.
+    ARTIFACT="$(octo_bin)"
+    [ -n "$ARTIFACT" ] && [ -f "$ARTIFACT" ] && ARTIFACT_BYTES="$(wc -c < "$ARTIFACT" | tr -d ' ')"
     ;;
   docker)
     ARTIFACT="${OCTO_IMAGE:-juancavallotti/octo-runtime:latest}"

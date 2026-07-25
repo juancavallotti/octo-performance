@@ -61,6 +61,35 @@ task bench SCENARIO=001-template-page \
 
 Add `TARGET=docker` to run the same thing against the published runtime image.
 
+## What this scenario has already shown
+
+Measured on `m1pro-16gb` (Apple M1 Pro, 8P+2E, 16 GB), Octo 0.4.3, load generator sharing
+the host.
+
+**Capacity.** CPU scales linearly with offered rate to ~310% of one core at 36,000 req/s,
+then folds over at 40,000 — CPU *falls* to 260% while k6 sheds 9,161 iterations. The knee is
+32–36k req/s, and the cost is roughly **0.086 CPU-ms per request** for a full HTTP-in /
+template-render / HTML-out path with no I/O.
+
+**Published results**, three repetitions per arm at 16,000 req/s:
+
+| | native | container |
+|---|---|---|
+| Throughput | 15,996 req/s | 15,957 req/s |
+| CPU-ms / request | 0.097 | 0.109 |
+| p95 | 0.71 ms | 19.41 ms |
+| Idle RSS | 22.0 MiB | 9.5 MiB |
+| Cold start | 130 ms | 427 ms |
+
+The container's p95 reflects the Docker Desktop userland port proxy rather than the runtime.
+
+**Tuning does not move this scenario, and that is the result.** A single-block flow with no I/O
+never blocks a worker, so there is no queueing for `workers` or `buffer` to relieve, and `pool`
+is untouched because there are no concurrent composites. The runtime logs its worker count at
+startup, and a stripped config and one declaring `workers: 8` both report `workers=8` — they are
+the same configuration, and they measure the same. Scenario 002 onward exist to find where the
+knobs do matter.
+
 ## Load profile
 
 Set in `scenario.env`.

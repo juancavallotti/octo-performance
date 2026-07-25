@@ -76,10 +76,22 @@ load_scenario() {
 
 # --------------------------------------------------------------- versions ----
 
+# The native binary under test. Defaults to whatever is on PATH; set OCTO_BIN to
+# benchmark a specific build — e.g. two releases side by side on the same host,
+# which is the whole point of tracking regressions.
+octo_bin() {
+  if [ -n "${OCTO_BIN:-}" ]; then
+    printf '%s\n' "$OCTO_BIN"
+  else
+    command -v octo 2>/dev/null || true
+  fi
+}
+
 octo_version() {
   # "octo 0.4.2" -> "0.4.2"
-  command -v octo >/dev/null 2>&1 || { echo "unknown"; return; }
-  octo version 2>/dev/null | awk '{print $2; exit}' | tr -d '\r'
+  local bin; bin="$(octo_bin)"
+  [ -n "$bin" ] && [ -x "$bin" ] || { echo "unknown"; return; }
+  "$bin" version 2>/dev/null | awk '{print $2; exit}' | tr -d '\r'
 }
 
 k6_version() {

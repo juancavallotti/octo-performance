@@ -30,7 +30,8 @@ TARGET="$TARGET" HOST="${HOST:-local}" "$LAB_BIN/preflight.sh"
 
 step "guard: both variants render from the scenario's single integration.yaml"
 for v in $VARIANTS; do
-  python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" "$v" >/dev/null \
+  python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" "$v" \
+    --tunables "${TUNABLES:-workers buffer pool}" >/dev/null \
     || die "cannot render the '$v' variant"
 done
 dim "  ok"
@@ -108,29 +109,25 @@ for variant in $VARIANTS; do
     step "$variant / $TEST / rep $rep"
 
     # The knobs are baked into the rendered config, not passed to the runtime:
-    # Octo's ${ENV} substitution does not reach root-flow fields.
-    if [ "$variant" = "tuned" ]; then
-      export FLOW_WORKERS="${TUNED_WORKERS:-}" FLOW_BUFFER="${TUNED_BUFFER:-}" FLOW_POOL="${TUNED_POOL:-}"
-    else
-      # Baseline renders with the knobs stripped, whatever is in the environment.
-      unset FLOW_WORKERS FLOW_BUFFER FLOW_POOL
-    fi
-
+    # Octo's ${ENV} substitution does not reach root-flow fields. stage-config.sh
+    # reads TUNED_<KNOB> for each of the scenario's declared TUNABLES; baseline
+    # ignores them and strips instead.
     "$LAB_BIN/stage-config.sh" "$SCENARIO_DIR" "$variant" "$STAGE" >/dev/null
     # Provenance: keep the exact config this cell ran, so a result can always be
     # traced back to the YAML that produced it.
     cp "$STAGE/octo.yaml" "$cell/config.yaml"
 
     # Record the knobs as they ended up in the config, not as they were requested.
-    python3 - "$STAGE/octo.yaml" > "$cell/knobs.json" <<'PY'
-import json, re, sys
-knob = re.compile(r"^\s*(workers|buffer|pool):\s*(\d+)\s*$")
+    TUNABLES="${TUNABLES:-workers buffer pool}" python3 - "$STAGE/octo.yaml" > "$cell/knobs.json" <<'PY'
+import json, os, re, sys
+names = os.environ.get("TUNABLES", "workers buffer pool").split()
+knob = re.compile(r"^\s*(%s):\s*(\d+)\s*$" % "|".join(re.escape(n) for n in names))
 found = {}
 for line in open(sys.argv[1]):
     m = knob.match(line)
     if m:
         found[m.group(1)] = m.group(2)
-print(json.dumps({k: found.get(k, "runtime default") for k in ("workers", "buffer", "pool")}))
+print(json.dumps({k: found.get(k, "runtime default") for k in names}))
 PY
     dim "  knobs: $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join(f"{k}={v}" for k,v in d.items()))' "$cell/knobs.json")"
 
@@ -172,6 +169,13 @@ PY
     trap - EXIT
 
     rm -f "$cell/warmup.log"
+
+    # Cool down between measured runs. Not politeness: back-to-back load runs leave
+    # ~a million sockets in TIME_WAIT and a hot chassis, and the next run inherits
+    # both. The resulting ordering artifacts are big enough to look like a real
+    # difference between identical configurations. See METHODOLOGY.md.
+    dim "  cooldown ${COOLDOWN_SECONDS:-15}s"
+    sleep "${COOLDOWN_SECONDS:-15}"
   done
 done
 

@@ -65,7 +65,7 @@ DOCKER_SERVER=""
 case "$TARGET" in
   native)
     OCTO_VERSION="$(octo_version)"
-    OCTO_ARTIFACT="$(command -v octo || true)"
+    OCTO_ARTIFACT="$(octo_bin)"
     if [ -n "$OCTO_ARTIFACT" ] && [ -f "$OCTO_ARTIFACT" ]; then
       OCTO_ARTIFACT_BYTES="$(wc -c < "$OCTO_ARTIFACT" | tr -d ' ')"
     fi

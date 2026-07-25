@@ -1,2 +1,0 @@
-time=2026-07-25T10:55:56.553-07:00 level=INFO msg="runtime services ready" module=standalone
-time=2026-07-25T10:55:56.553-07:00 level=ERROR msg="cli stopped with error" error="no .yaml/.yml config files in \"/Users/juancavallotti/Documents/development/octo-performance/.stage/sweep\""

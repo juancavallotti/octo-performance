@@ -28,10 +28,11 @@ fi
 # --- target-specific ----------------------------------------------------------
 case "$TARGET" in
   native)
-    if command -v octo >/dev/null 2>&1; then
-      ok "octo" "$(octo_version)  ($(command -v octo))"
+    octo_path="$(octo_bin)"
+    if [ -n "$octo_path" ] && [ -x "$octo_path" ]; then
+      ok "octo" "$(octo_version)  ($octo_path)"
     else
-      absent "octo" "not installed — see https://juancavallotti.github.io/octo/getting-started/installation/"
+      absent "octo" "not found${OCTO_BIN:+ at OCTO_BIN=$OCTO_BIN} — see https://juancavallotti.github.io/octo/getting-started/installation/"
     fi
     skipped "docker" "not needed for TARGET=native"
     ;;

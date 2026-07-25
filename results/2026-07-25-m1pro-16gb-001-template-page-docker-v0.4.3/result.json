@@ -1,0 +1,43 @@
+{
+  "runId": "2026-07-25-m1pro-16gb-001-template-page-docker-v0.4.3",
+  "generatedAt": "2026-07-25T18:32:13Z",
+  "scenario": "001-template-page",
+  "target": "docker",
+  "hostProfile": "m1pro-16gb",
+  "octoVersion": "0.4.3",
+  "test": "steady",
+  "reps": 3,
+  "footprint": {
+    "target": "docker",
+    "artifact": "juancavallotti/octo-runtime:latest",
+    "artifactBytes": 14178164,
+    "coldStartMs": 427,
+    "idleHoldSeconds": 30,
+    "idleSamples": 13,
+    "idleCpuPctMean": 0.029,
+    "idleCpuPctMax": 0.28,
+    "idleRssBytesMean": 9920512,
+    "idleRssBytesMax": 9920512
+  },
+  "baseline": {
+    "achievedRps": 15956.510372443274,
+    "cpuMsPerRequest": 0.1091,
+    "rssBytesPer1kRps": 6472376,
+    "droppedIterations": 2426,
+    "failedRate": 0,
+    "p95Ms": 19.41044999999996
+  },
+  "tuned": {
+    "achievedRps": 15851.993033135825,
+    "cpuMsPerRequest": 0.112,
+    "rssBytesPer1kRps": 6054599,
+    "droppedIterations": 6360,
+    "failedRate": 0,
+    "p95Ms": 32.827,
+    "knobs": {
+      "workers": "128",
+      "buffer": "256",
+      "pool": "8"
+    }
+  }
+}

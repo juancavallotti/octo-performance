@@ -15,17 +15,19 @@ cmd="${1:?usage: target-native.sh start|pid|stop ...}"; shift
 
 start() {
   local config_dir="${1:?config dir required}" state="${2:?state dir required}"
-  require octo "Install it: https://juancavallotti.github.io/octo/getting-started/installation/"
+  local bin; bin="$(octo_bin)"
+  [ -n "$bin" ] && [ -x "$bin" ] || \
+    die "no octo binary (set OCTO_BIN, or install: https://juancavallotti.github.io/octo/getting-started/installation/)"
   mkdir -p "$state"
 
   local time_args
   if [ "$OS" = "Darwin" ]; then time_args=(-l -o "$state/time.txt")
   else                          time_args=(-v -o "$state/time.txt"); fi
 
-  # Tuning knobs reach the runtime as OS environment variables; Octo resolves
-  # ${NAME} placeholders from the OS env before the declared defaults.
+  # The tuning knobs are baked into the rendered config, not passed here: Octo's
+  # ${ENV} substitution does not reach root-flow fields.
   /usr/bin/time "${time_args[@]}" \
-    octo run --config "$config_dir" >"$state/octo.log" 2>&1 &
+    "$bin" run --config "$config_dir" >"$state/octo.log" 2>&1 &
   local wrapper=$!
   echo "$wrapper" > "$state/wrapper.pid"
 

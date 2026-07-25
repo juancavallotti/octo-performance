@@ -138,6 +138,26 @@ it serves anything.
 | Idle RSS | Resident memory after a 30 s idle hold post-readiness. |
 | Idle CPU % | Mean CPU over that same idle hold. Should be ~0; anything else is a finding. |
 
+## Cooldown between runs
+
+Every measured run is followed by a cooldown (`COOLDOWN_SECONDS`, default 15) before
+the next one starts. This is not a courtesy — it is load-bearing.
+
+A minute at 24,000 req/s leaves on the order of a million sockets working through
+`TIME_WAIT`, and a laptop chassis that has been sitting at 300% CPU is thermally a
+different machine from a cold one. A run that starts in that state inherits both,
+and the resulting ordering artifacts are large — easily large enough to look like a
+real difference between configurations that are in fact identical.
+
+Two defences, both mandatory:
+
+1. **Cool down between runs**, so each starts from a comparable state.
+2. **Alternate and repeat** when comparing two configurations, rather than running
+   all of A then all of B. A difference that survives interleaving is a difference;
+   one that tracks position in the sequence is an artifact.
+
+This is also why a single run is never a result: see repetitions and medians above.
+
 ## Caveats
 
 Stated plainly, because a benchmark that hides its limitations is marketing.

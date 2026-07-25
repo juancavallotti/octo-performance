@@ -69,6 +69,19 @@ task index                                           # regenerate results/index.
 Common variables: `TARGET=native|docker`, `REPS=1`, `HOST=local`, `TEST=steady|capacity`,
 `TUNED_WORKERS=16 TUNED_BUFFER=256 TUNED_POOL=8`, `OCTO_IMAGE=juancavallotti/octo-runtime:0.4.3`.
 
+**Benchmarking a specific build.** `OCTO_BIN` points the native target at a particular binary
+instead of whatever is on `PATH`, which is how two releases get compared on the same host:
+
+```bash
+OCTO_BIN=~/.octo-versions/octo-0.4.2 task bench SCENARIO=001-template-page
+OCTO_BIN=~/.octo-versions/octo-0.4.3 task bench SCENARIO=001-template-page
+```
+
+Each run stamps its own version into `env.json` and the run id, so `results/index.md` lines them
+up in the regression view. Prefer the released tarball from GitHub over `go install` when the
+question is "how does the shipped distribution behave" — they are not the same binary (0.4.3 is
+46 MB from the release, 65 MB built locally).
+
 The tasks are a thin interface; the work lives in `lab/bin/` because it involves background
 process supervision, signal handling, and PID discovery — things that belong in scripts rather
 than in YAML.

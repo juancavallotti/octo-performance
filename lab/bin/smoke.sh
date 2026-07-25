@@ -21,7 +21,8 @@ DRIVER="$LAB_BIN/target-$TARGET.sh"
 TARGET="$TARGET" HOST="${HOST:-local}" "$LAB_BIN/preflight.sh"
 
 step "guard: the $VARIANT variant renders from integration.yaml"
-python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" "$VARIANT" >/dev/null \
+python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" "$VARIANT" \
+  --tunables "${TUNABLES:-workers buffer pool}" >/dev/null \
   || die "cannot render the '$VARIANT' variant"
 dim "  ok"
 

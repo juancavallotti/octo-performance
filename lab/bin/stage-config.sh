@@ -2,7 +2,10 @@
 # Stage one rendered variant of a scenario into a clean directory.
 #
 # Usage: stage-config.sh <scenario-dir> <variant> <dest-dir>
-# Reads FLOW_WORKERS / FLOW_BUFFER / FLOW_POOL for the tuned variant; unset knobs
+#
+# Tunables are per-scenario: TUNABLES in scenario.env names them (default
+# "workers buffer pool"). For the tuned variant each knob's value is read from
+# TUNED_<UPPERCASE_KNOB> — e.g. TUNED_WORKERS, TUNED_MAXOPENCONNS. Unset knobs
 # keep whatever integration.yaml declares.
 #
 # Three reasons this exists rather than pointing octo at the scenario directly:
@@ -29,11 +32,16 @@ rm -rf "$DEST"
 mkdir -p "$DEST"
 DEST="$(cd "$DEST" && pwd)"
 
-render_args=()
+TUNABLES="${TUNABLES:-workers buffer pool}"
+
+render_args=(--tunables "$TUNABLES")
 if [ "$VARIANT" = "tuned" ]; then
-  [ -n "${FLOW_WORKERS:-}" ] && render_args+=(--workers "$FLOW_WORKERS")
-  [ -n "${FLOW_BUFFER:-}" ]  && render_args+=(--buffer  "$FLOW_BUFFER")
-  [ -n "${FLOW_POOL:-}" ]    && render_args+=(--pool    "$FLOW_POOL")
+  for knob in $TUNABLES; do
+    # workers -> TUNED_WORKERS, maxOpenConns -> TUNED_MAXOPENCONNS
+    var="TUNED_$(printf '%s' "$knob" | tr '[:lower:]' '[:upper:]')"
+    val="$(eval "printf '%s' \"\${$var:-}\"")"
+    [ -n "$val" ] && render_args+=(--set "$knob=$val")
+  done
 fi
 
 # ${a[@]+"${a[@]}"} keeps an empty array safe under `set -u` on bash 3.2 (macOS).

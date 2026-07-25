@@ -1,0 +1,124 @@
+# Scenario 002 — fan-out and transform. Single source of truth for this integration.
+#
+# lab/bin/render-config.py derives both arms: baseline strips the knobs listed in
+# scenario.env's TUNABLES so the runtime uses its own defaults; tuned rewrites them.
+#
+# Unlike scenario 001, this flow uses composite blocks. `fork` hands its branches to
+# the shared worker pool, so `pool` is exercised here for the first time — scenario
+# 001 declared it but never scheduled anything on it.
+
+service:
+  name: perf-fanout
+  environment: benchmark
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+flows:
+  - name: order
+    # Rendered per arm. These values apply only when running the file directly.
+    workers: 8
+    buffer: 64
+    pool: 8
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /order/{id}
+    process:
+      # One block, several accumulating CEL edits — later steps see earlier results.
+      - type: multi-transform
+        name: normalise
+        settings:
+          transforms:
+            - setVar: orderId
+              value: vars.id
+            - setVar: lineCount
+              value: size(body.lines)
+            - setVar: gross
+              value: 'double(size(body.lines)) * 19.99'
+            - setBody: >-
+                {"id": vars.id, "customer": body.customer, "lines": body.lines,
+                 "lineCount": vars.lineCount, "gross": vars.gross}
+
+      # The fan-out. Each branch gets a clone of the message and is scheduled on the
+      # flow's shared worker pool, so branch count and `pool` interact directly.
+      - type: fork
+        name: enrichments
+        branches:
+          - name: pricing
+            process:
+              # map mode: sequential CPU work per line, collected into a new body.
+              - type: foreach
+                items: body.lines
+                as: line
+                mode: map
+                body:
+                  process:
+                    - type: set-payload
+                      settings:
+                        value: >-
+                          {"sku": vars.line.sku,
+                           "qty": vars.line.qty,
+                           "net": vars.line.qty * vars.line.price,
+                           "tax": vars.line.qty * vars.line.price * 0.21}
+          - name: notify
+            process:
+              - type: multi-transform
+                settings:
+                  transforms:
+                    - setVar: channel
+                      value: 'vars.lineCount > 5 ? "priority" : "standard"'
+                    - setVar: notice
+                      value: '"order " + vars.id + " (" + string(vars.lineCount) + " lines)"'
+          - name: audit
+            process:
+              - type: multi-transform
+                settings:
+                  transforms:
+                    - setVar: auditKey
+                      value: '"order:" + vars.id + ":" + eventID'
+                    - setVar: auditWeight
+                      value: 'double(vars.lineCount) * 1.5'
+
+      # Composition across flows. These run on the MAIN message, so unlike the fork
+      # branches — which each get a clone and join by pass-through — their variable
+      # writes reach the response.
+      - type: flow-ref
+        name: score
+        settings:
+          flow: score-risk
+      - type: flow-ref
+        name: finalise
+        settings:
+          flow: finalize
+
+  # Callable flows: no source, no concurrency knobs of their own — they run on the
+  # calling flow's workers.
+  - name: score-risk
+    process:
+      - type: multi-transform
+        settings:
+          transforms:
+            - setVar: riskBand
+              value: 'vars.gross > 200.0 ? "high" : (vars.gross > 80.0 ? "medium" : "low")'
+            - setVar: riskScore
+              value: 'vars.gross * 0.37 + double(vars.lineCount) * 2.5'
+
+  - name: finalize
+    process:
+      - type: set-payload
+        settings:
+          value: >-
+            {"orderId": vars.orderId,
+             "lineCount": vars.lineCount,
+             "gross": vars.gross,
+             "riskBand": has(vars.riskBand) ? vars.riskBand : "unscored",
+             "status": "accepted"}
