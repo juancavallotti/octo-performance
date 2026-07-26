@@ -1,0 +1,37 @@
+# GitHub Pages configuration.
+#
+# The site is served from the repository ROOT rather than from /docs, because the
+# thing worth publishing — results/, scenarios/, METHODOLOGY.md, COMPARISON.md —
+# already lives there and already cross-links with relative paths. Serving from a
+# subfolder would mean copying generated reports into it on every run, which is a
+# second source of truth for numbers that are supposed to have exactly one.
+#
+# GitHub Pages enables jekyll-relative-links by default, so links written as
+# `../METHODOLOGY.md` or `<run-id>/REPORT.md` resolve to the rendered pages without
+# anything here having to rewrite them. That is why reports keep .md links.
+
+title: Octo performance lab
+description: Reproducible, version-stamped benchmarks for the Octo integration runtime
+theme: jekyll-theme-primer
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+# The harness is not documentation. Everything excluded here is machinery: shell
+# scripts, staged configs, editor state. Raw run artifacts (summary.json,
+# resources.csv, config.yaml) are deliberately NOT excluded — being able to
+# download the data behind a chart is most of what makes a published benchmark
+# worth reading.
+exclude:
+  - Taskfile.yml
+  - lab/
+  - .stage/
+  - .claude/
+  - .github/
+  - "**/__pycache__/"
+  - "*.pyc"
+  - vendor/
+  - Gemfile
+  - Gemfile.lock

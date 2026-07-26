@@ -11,7 +11,7 @@ GET /page/{name}  →  http source  →  template-resource  →  text/html
 One root flow, one block. A request arrives on the `http` server connector; the
 `http` route source matches `/page/{name}`, lifts the path parameter into the message
 variables, and hands the message to a flow worker; the `template-resource` block
-evaluates every `{{ CEL }}` placeholder in `octo/templates/page.tmpl` and writes the
+evaluates every {% raw %}`{{ CEL }}`{% endraw %} placeholder in `octo/templates/page.tmpl` and writes the
 result as a raw-content body, which the source returns verbatim with
 `Content-Type: text/html; charset=utf-8`.
 
@@ -114,6 +114,6 @@ The gate fails the whole run if any of these fail:
 - `Content-Type` contains `text/html`
 - body is a complete HTML document
 - the path parameter appears in the body (the template actually interpolated)
-- no `{{` remains in the body (nothing failed to render)
+- no {% raw %}`{{`{% endraw %} remains in the body (nothing failed to render)
 - the response is not a JSON envelope (raw-content mode is really in effect)
 - body is larger than 1 KB (not a truncated or error page)

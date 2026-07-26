@@ -38,21 +38,35 @@ else
     >/dev/null
 fi
 
-# Wait for the server to accept connections.
-for _ in $(seq 1 90); do
-  if docker exec "$NAME" pg_isready -U postgres -d "$DB" >/dev/null 2>&1; then
-    break
+# Wait for the server to accept connections — over TCP, and twice.
+#
+# Both details matter. On first boot the postgres entrypoint runs initdb against a
+# temporary server that listens on a unix socket ONLY, runs init scripts, then stops
+# it and restarts for real. A plain `pg_isready` succeeds against that temporary
+# instance, so the schema step below would race the restart and fail with
+# "connection to server on socket ... failed: No such file or directory". Forcing
+# TCP skips the socket-only phase, and requiring two consecutive successes a second
+# apart survives the restart in between.
+ready=0
+for _ in $(seq 1 120); do
+  if docker exec "$NAME" pg_isready -h 127.0.0.1 -p 5432 -U postgres -d "$DB" >/dev/null 2>&1; then
+    ready=$((ready + 1))
+    [ "$ready" -ge 2 ] && break
+  else
+    ready=0
   fi
   sleep 0.5
 done
-docker exec "$NAME" pg_isready -U postgres -d "$DB" >/dev/null 2>&1 || {
+[ "$ready" -ge 2 ] || {
   echo "error: postgres did not become ready" >&2
   docker logs --tail 30 "$NAME" >&2 || true
   exit 1
 }
 
-# Schema. Created once, outside the measured window.
-docker exec -i "$NAME" psql -U postgres -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+# Schema. Created once, outside the measured window. Retried anyway: readiness is a
+# prediction, and a benchmark that dies here has wasted the whole run.
+for attempt in 1 2 3 4 5; do
+  if docker exec -i "$NAME" psql -h 127.0.0.1 -U postgres -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE TABLE IF NOT EXISTS orders (
   id          text PRIMARY KEY,
   customer    text        NOT NULL,
@@ -63,5 +77,14 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS orders_customer_idx ON orders (customer);
 TRUNCATE orders;
 SQL
+  then
+    echo "  postgres ready on :$PORT (db=$DB, table=orders)" >&2
+    exit 0
+  fi
+  echo "  schema attempt $attempt failed; retrying" >&2
+  sleep 2
+done
 
-echo "  postgres ready on :$PORT (db=$DB, table=orders)" >&2
+echo "error: could not create the schema after 5 attempts" >&2
+docker logs --tail 30 "$NAME" >&2 || true
+exit 1

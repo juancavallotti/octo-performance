@@ -1,0 +1,12 @@
+time=2026-07-25T21:44:19.333Z level=INFO msg="runtime services ready" module=standalone
+time=2026-07-25T21:44:19.335Z level=INFO msg="resolved environment variables" count=1 declared=[HTTP_PORT]
+time=2026-07-25T21:44:19.335Z level=INFO msg="starting runtime" version=0.4.3 connectors=1 flows=4
+time=2026-07-25T21:44:19.335Z level=INFO msg="starting connector" connector=api type=http
+time=2026-07-25T21:44:19.338Z level=INFO msg="http endpoint available" pattern=/order/{id} url=http://[::]:8080/order/{id}
+time=2026-07-25T21:44:19.344Z level=INFO msg="http endpoint available" pattern=/health url=http://[::]:8080/health
+time=2026-07-25T21:44:19.344Z level=INFO msg="starting flow" flow=score-risk workers=8 source=implicit
+time=2026-07-25T21:44:19.344Z level=INFO msg="starting flow" flow=finalize workers=8 source=implicit
+🚀  octo v0.4.3 is up and ready to roll!
+time=2026-07-25T21:44:19.344Z level=INFO msg="starting flow" flow=order workers=8 source="http via connector \"api\""
+time=2026-07-25T21:44:19.344Z level=INFO msg="starting flow" flow=health workers=8 source="http via connector \"api\""
+time=2026-07-25T21:44:19.344Z level=INFO msg="runtime ready" connectors=1 flows=4

@@ -1,0 +1,126 @@
+# GENERATED — do not edit. Edit the scenario's integration.yaml instead.
+# Rendered from integration.yaml as the BASELINE variant.
+# stripped: buffer, pool, workers — the runtime uses its own defaults.
+
+# Scenario 006 — payload transformation. Single source of truth for this integration.
+#
+# Payload transformation, described in three steps:
+# "An HTTP listener receives a payload in the source format. The runtime transforms
+# the input payload into the target format. The payload is returned."
+#
+# Three transformations matter in practice — CSV→JSON, JSON→JSON, XML→JSON. Only the
+# middle one has an Octo equivalent: CEL has no CSV or XML parser and the runtime
+# ships no block providing one, so two of the three cannot be built. See
+# COMPARISON.md.
+#
+# TWO flows do the same transformation by different means, because the difference
+# between them turned out to be the largest single finding in this lab:
+#
+#   /transform          CEL's native .map()   — linear in record count
+#   /transform-foreach  foreach mode: map     — QUADRATIC in record count
+#
+# Both are measured. The second exists to size the gap and to catch the day it
+# closes. See the scenario README.
+
+service:
+  name: perf-transform
+  environment: benchmark
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+flows:
+  # ---------------------------------------------------------------- primary ----
+  # The implementation a competent author would ship, and therefore the one whose
+  # number belongs in a cross-vendor comparison.
+  - name: transform
+    # Rendered per arm. These values apply only when running the file directly.
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /transform
+        # Defaults to 1 MiB — exactly the top of the payload ladder, so the default
+        # would reject the case it is meant to measure.
+        maxBodyBytes: 8388608
+    process:
+      - type: multi-transform
+        name: reshape
+        settings:
+          transforms:
+            # Rename, nest, derive. Structural work rather than arithmetic, so cost
+            # tracks the payload rather than a formula.
+            - setBody: >-
+                body.records.map(r, {
+                  "accountId": r.id,
+                  "name": r.name,
+                  "location": {"region": r.region, "country": r.country},
+                  "balance": {"amount": r.amount, "currency": r.currency,
+                              "withTax": r.amount * 1.21},
+                  "active": r.status == "ACTIVE",
+                  "tier": r.amount > 5000.0 ? "gold"
+                          : (r.amount > 1000.0 ? "silver" : "bronze")})
+            - setVar: recordCount
+              value: size(body)
+            - setBody: >-
+                {"accounts": body,
+                 "meta": {"count": vars.recordCount, "correlationId": correlationID}}
+
+  # ------------------------------------------------------------- comparison ----
+  # Identical output, written with the block the documentation points you at. Kept
+  # in the hot path of its own route only — never inside the primary flow.
+  - name: transform-foreach
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /transform-foreach
+        maxBodyBytes: 8388608
+    process:
+      - type: foreach
+        name: records
+        items: body.records
+        as: rec
+        mode: map
+        body:
+          process:
+            - type: set-payload
+              settings:
+                value: >-
+                  {"accountId": vars.rec.id,
+                   "name": vars.rec.name,
+                   "location": {"region": vars.rec.region, "country": vars.rec.country},
+                   "balance": {"amount": vars.rec.amount,
+                               "currency": vars.rec.currency,
+                               "withTax": vars.rec.amount * 1.21},
+                   "active": vars.rec.status == "ACTIVE",
+                   "tier": vars.rec.amount > 5000.0 ? "gold"
+                           : (vars.rec.amount > 1000.0 ? "silver" : "bronze")}
+      - type: multi-transform
+        name: envelope
+        settings:
+          transforms:
+            - setVar: recordCount
+              value: size(body)
+            - setBody: >-
+                {"accounts": body,
+                 "meta": {"count": vars.recordCount, "correlationId": correlationID}}
+
+  # Readiness probe: the measured route is a POST that requires a body.
+  - name: health
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /health
+    process:
+      - type: set-payload
+        settings:
+          value: '{"status": "ok"}'

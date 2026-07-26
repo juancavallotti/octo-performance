@@ -1,0 +1,13 @@
+time=2026-07-25T15:46:21.114-07:00 level=INFO msg="runtime services ready" module=standalone
+time=2026-07-25T15:46:21.115-07:00 level=INFO msg="resolved environment variables" count=1 declared=[HTTP_PORT]
+time=2026-07-25T15:46:21.115-07:00 level=INFO msg="starting runtime" version=0.4.3 connectors=1 flows=3
+time=2026-07-25T15:46:21.115-07:00 level=INFO msg="starting connector" connector=api type=http
+time=2026-07-25T15:46:21.116-07:00 level=INFO msg="http endpoint available" pattern=/transform url=http://[::]:8080/transform
+time=2026-07-25T15:46:21.120-07:00 level=INFO msg="http endpoint available" pattern=/transform-foreach url=http://[::]:8080/transform-foreach
+time=2026-07-25T15:46:21.120-07:00 level=INFO msg="http endpoint available" pattern=/health url=http://[::]:8080/health
+time=2026-07-25T15:46:21.121-07:00 level=INFO msg="starting flow" flow=transform workers=8 source="http via connector \"api\""
+time=2026-07-25T15:46:21.121-07:00 level=INFO msg="starting flow" flow=transform-foreach workers=8 source="http via connector \"api\""
+time=2026-07-25T15:46:21.121-07:00 level=INFO msg="starting flow" flow=health workers=8 source="http via connector \"api\""
+time=2026-07-25T15:46:21.121-07:00 level=INFO msg="runtime ready" connectors=1 flows=3
+🚀  octo v0.4.3 is up and ready to roll!
+time=2026-07-25T15:47:31.598-07:00 level=ERROR msg="cli stopped with error" error="http connector shutdown: close tcp [::]:8080: use of closed network connection"

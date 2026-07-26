@@ -1,0 +1,43 @@
+{
+  "runId": "2026-07-25-m1pro-16gb-006-json-transform-native-v0.4.3",
+  "generatedAt": "2026-07-25T22:52:04Z",
+  "scenario": "006-json-transform",
+  "target": "native",
+  "hostProfile": "m1pro-16gb",
+  "octoVersion": "0.4.3",
+  "test": "steady",
+  "reps": 3,
+  "footprint": {
+    "target": "native",
+    "artifact": "/Users/juancavallotti/.octo-versions/octo-0.4.3",
+    "artifactBytes": 46298258,
+    "coldStartMs": 107,
+    "idleHoldSeconds": 30,
+    "idleSamples": 27,
+    "idleCpuPctMean": 0.0,
+    "idleCpuPctMax": 0.0,
+    "idleRssBytesMean": 28820669,
+    "idleRssBytesMax": 37863424
+  },
+  "baseline": {
+    "achievedRps": 3999.9577337799465,
+    "cpuMsPerRequest": 0.334,
+    "rssBytesPer1kRps": 11296887,
+    "droppedIterations": 0,
+    "failedRate": 0,
+    "p95Ms": 0.51
+  },
+  "tuned": {
+    "achievedRps": 3999.966067095918,
+    "cpuMsPerRequest": 0.3468,
+    "rssBytesPer1kRps": 12972142,
+    "droppedIterations": 0,
+    "failedRate": 0,
+    "p95Ms": 0.522,
+    "knobs": {
+      "workers": "32",
+      "buffer": "256",
+      "pool": "8"
+    }
+  }
+}

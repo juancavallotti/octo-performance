@@ -111,7 +111,7 @@ lab/k6/lib/     shared k6 helpers
 lab/hosts/      one .env per machine that can run the lab
 scenarios/      benchmark scenarios
 results/        immutable run output, never hand-edited
-docs/           GitHub Pages skeleton (Pages not enabled yet)
+_config.yml     GitHub Pages, served from the repo root
 ```
 
 ## Documentation
@@ -121,6 +121,10 @@ docs/           GitHub Pages skeleton (Pages not enabled yet)
 - [AGENTS.md](AGENTS.md) — the working contract: golden rules, how to add a scenario, and the
   findings workflow.
 - [results/index.md](results/index.md) — every run recorded so far.
+- [COMPARISON.md](COMPARISON.md) — what other runtimes have published, and what may honestly be
+  concluded from it.
+
+Published at **https://juancavallotti.github.io/octo-performance/**.
 
 ## Findings
 

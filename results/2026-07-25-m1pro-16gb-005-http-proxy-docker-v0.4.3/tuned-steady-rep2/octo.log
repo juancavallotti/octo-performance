@@ -1,0 +1,12 @@
+time=2026-07-25T22:39:56.921Z level=INFO msg="runtime services ready" module=standalone
+time=2026-07-25T22:39:56.922Z level=INFO msg="resolved environment variables" count=4 declared="[BACKEND_DELAY BACKEND_SIZE BACKEND_URL HTTP_PORT]"
+time=2026-07-25T22:39:56.922Z level=INFO msg="starting runtime" version=0.4.3 connectors=2 flows=2
+time=2026-07-25T22:39:56.922Z level=INFO msg="starting connector" connector=api type=http
+time=2026-07-25T22:39:56.925Z level=INFO msg="starting connector" connector=backend type=http-client
+time=2026-07-25T22:39:56.925Z level=INFO msg="http client connector started" connector=backend baseURL=http://host.docker.internal:9090 auth=none cache=false
+time=2026-07-25T22:39:56.925Z level=INFO msg="http endpoint available" pattern=/proxy/{id} url=http://[::]:8080/proxy/{id}
+time=2026-07-25T22:39:56.926Z level=INFO msg="http endpoint available" pattern=/health url=http://[::]:8080/health
+time=2026-07-25T22:39:56.926Z level=INFO msg="starting flow" flow=proxy workers=512 source="http via connector \"api\""
+time=2026-07-25T22:39:56.927Z level=INFO msg="starting flow" flow=health workers=8 source="http via connector \"api\""
+time=2026-07-25T22:39:56.927Z level=INFO msg="runtime ready" connectors=2 flows=2
+🚀  octo v0.4.3 is up and ready to roll!

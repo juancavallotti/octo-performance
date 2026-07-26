@@ -16,7 +16,7 @@ Read [METHODOLOGY.md](METHODOLOGY.md) before interpreting or producing any resul
 | `lab/hosts/` | One `.env` per machine that can run the lab. Defines `HOST_PROFILE` and `BASE_URL`. |
 | `scenarios/<id>-<slug>/` | One benchmark scenario: its Octo configs, its template/data assets, its k6 tests, and a README describing the integration. |
 | `results/<run-id>/` | Immutable run output. Never hand-edited. |
-| `docs/` | GitHub Pages skeleton. Pages is **not** enabled yet; reports are Pages-ready markdown. |
+| `_config.yml`, `index.md` | GitHub Pages. The site is served from the repo **root**, so `results/` and `scenarios/` publish as they are — there is no copy step and no second source of truth for a number. |
 
 A run id is `<date>-<host-profile>-<scenario>-<target>-v<octo-version>`, e.g.
 `2026-07-25-m1pro-16gb-001-template-page-native-v0.4.2`.
