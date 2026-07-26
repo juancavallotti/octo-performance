@@ -144,25 +144,28 @@ Recorded here so nobody re-discovers them:
 
 ## Comparing against other runtimes
 
-[COMPARISON.md](COMPARISON.md) is the authority: what each vendor published, under what
-conditions, which scenarios have been rebuilt, and what may be claimed. Read it before writing
-any sentence that puts an Octo number next to somebody else's. The short form:
+[COMPARISON.md](COMPARISON.md) is the authority: what has to match before two figures
+describe the same thing, and what may be claimed. Read it before writing any sentence that
+puts an Octo number next to somebody else's. The short form:
 
-1. **Load model is not a detail.** Every published vendor benchmark is closed-model — throughput
-   against a fixed virtual-user population — and their "knee point" is an artifact of that model.
+1. **Load model is not a detail.** Published benchmarks are almost always closed-model —
+   throughput against a fixed virtual-user population — and the "knee point" is an artifact of
+   that model.
    This lab is open-model everywhere except `task vuramp`, which exists for exactly this purpose.
    Never put an open-model number and a closed-model number in the same table.
 2. **Only footprint and CPU-ms/request are defensible today.** Throughput is not: theirs comes
    from dedicated servers with dedicated load generators, ours from a laptop running both.
 3. **Match the scenario before claiming anything.** Camel's headline 0.345 ms is *in-process
    routing latency*, not an end-to-end HTTP request.
-4. **Record what could not be built.** Four of a commercial platform's six standalone use cases have no Octo
-   equivalent. Those gaps belong in COMPARISON.md and in Notion — they are findings, not
-   omissions.
+4. **Record what could not be built.** Several ordinary integration workloads have no Octo
+   equivalent — CSV and XML transformation, policy enforcement, record-oriented batch, Kafka
+   and JMS. Those gaps belong in COMPARISON.md — they are findings, not omissions.
+5. **Describe workloads, not vendors.** A scenario is justified by what it exercises in the
+   runtime — blocking I/O, collection mapping, fan-out — not by who else measured something
+   similar. Keep product names out of the repo.
 
-`CPU_LIMIT=1 task bench ...` caps the container the way a commercial platform sizes a a hosted platform worker, and
-stamps the cap into the run id. Use it whenever the point of a run is comparability rather than
-Octo-against-itself.
+`CPU_LIMIT=1 task bench ...` caps the container to a stated size and stamps the cap into the
+run id. Use it whenever the point of a run is comparability rather than Octo-against-itself.
 
 ## Probing by hand
 

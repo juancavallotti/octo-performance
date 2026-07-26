@@ -1,10 +1,10 @@
 // A deliberately boring backend for proxy-shaped benchmarks.
 //
-// a commercial platform's HTTP Proxy benchmark puts a Vert.x server behind the runtime that
-// "adds a 70 milliseconds delay to emulate more realistic conditions and returns a
-// payload of a given size". This is that server. It exists so scenario 005 measures
-// the runtime's ability to hold concurrent in-flight requests rather than the
-// runtime's ability to generate bytes.
+// A proxy benchmark needs something on the other end that is slow but cheap: slow,
+// so the runtime has to hold requests in flight; cheap, so the backend does not
+// become the bottleneck on a shared host. This is that server. It exists so
+// scenario 005 measures the runtime's ability to hold concurrent in-flight requests
+// rather than its ability to generate bytes.
 //
 // Two properties matter and both are deliberate:
 //

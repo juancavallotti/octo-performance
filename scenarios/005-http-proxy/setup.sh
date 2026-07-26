@@ -5,10 +5,10 @@
 # cost never lands in the runtime's CPU sample — the harness samples only the Octo
 # process or container.
 #
-# Caveat worth stating: a commercial platform put their backend on a separate EC2 instance. Ours
-# shares the host with both the runtime and the load generator. It is a sleeping
-# server rather than a working one precisely to keep that contention small, but it
-# is not zero. See COMPARISON.md.
+# Caveat worth stating: a serious benchmark puts the backend on its own machine.
+# Ours shares the host with both the runtime and the load generator. It is a
+# sleeping server rather than a working one precisely to keep that contention
+# small, but it is not zero. See COMPARISON.md.
 
 set -euo pipefail
 

@@ -96,12 +96,12 @@ export function capacityOptions({ startRate, stages, thresholds }) {
  * Constant virtual users — a CLOSED model, used only for cross-vendor comparison.
  *
  * Everything else in this lab is deliberately open-model, for the reasons at the
- * top of this file. This executor exists because the published numbers we want to
- * stand beside are closed-model: a commercial platform's charts plot TPS and CPU% against JMeter
- * virtual users and define the "knee point" as the VU count where TPS stops rising.
- * That knee is an artifact of the closed model — under an open model the same
- * server has no knee, it just accumulates latency — so reproducing their x-axis is
- * the only way to produce a number that means the same thing theirs does.
+ * top of this file. This executor exists because the published numbers worth
+ * standing beside are closed-model: throughput and CPU plotted against a fixed
+ * virtual-user population, with the "knee point" being the VU count where
+ * throughput stops rising. That knee is an artifact of the closed model — under an
+ * open model the same server has no knee, it just accumulates latency — so
+ * reproducing that x-axis is the only way to produce a comparable number.
  *
  * The harness runs one k6 execution per VU level rather than ramping through them,
  * so each level gets its own clean CPU sample and no ramp transient bleeds across.

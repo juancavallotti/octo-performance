@@ -2,12 +2,12 @@
 # Closed-model VU sweep: throughput and CPU against virtual users, one k6 execution
 # per VU level.
 #
-# This exists for one reason: to produce a curve shaped like the ones published by
-# a commercial platform and Camel, so that our numbers can be read next to theirs. Their charts
-# plot average TPS and CPU% against JMeter virtual users and call the peak the
-# "knee point". That knee only exists under a closed model — offer load at a fixed
-# rate instead and the same server has no knee, it just queues — so matching the
-# x-axis is the only honest way to land on the same chart.
+# This exists for one reason: to produce a curve shaped like the ones most published
+# benchmarks use, so that our numbers can be read next to them. Those charts plot
+# average throughput and CPU against a fixed virtual-user population and call the
+# peak the "knee point". That knee only exists under a closed model — offer load at
+# a fixed rate instead and the same server has no knee, it just queues — so matching
+# the x-axis is the only honest way to land on the same chart.
 #
 # Everything else in this lab stays open-model. See METHODOLOGY.md and COMPARISON.md.
 #
@@ -19,7 +19,7 @@
 #   VARIANT    which arm to sweep         (default baseline)
 #   VU_LEVELS  space-separated VU counts  (default from scenario.env, else a ladder)
 #   VU_DURATION  dwell at each level      (default 30s)
-#   CPU_LIMIT     cap the container the way a vendor sized theirs (docker target only)
+#   CPU_LIMIT  cap the container's CPU to a known size (docker target only)
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 

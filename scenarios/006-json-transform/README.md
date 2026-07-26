@@ -1,16 +1,17 @@
 # 006 — payload transformation
 
-Mirrors a commercial platform's payload transformation use case. Their flow, in their words: *"An HTTP Listener
-receives a payload in the source format. payload transformation transforms the input payload into
-the target format. The payload is returned."*
+Payload transformation, the workload every integration runtime is measured on: an HTTP
+listener receives a payload in the source format, the runtime transforms it into the
+target format, and the result is returned.
 
 ## What could and could not be built
 
-a commercial platform benchmarks three transformations. Only one of them has an Octo equivalent:
+The three transformations that matter in practice are JSON, CSV and XML. Only one has an
+Octo equivalent:
 
-| a commercial platform's transformation | Built here? | Why |
+| Transformation | Built here? | Why |
 |---|---|---|
-| JSON → POJO | **yes** | JSON in, reshaped JSON out |
+| JSON → JSON | **yes** | JSON in, reshaped JSON out |
 | CSV → JSON | no | CEL has no CSV parser and no block provides one |
 | XML → JSON | no | CEL has no XML parser and no block provides one |
 
@@ -78,8 +79,8 @@ in one `foreach`. Measured: every request timed out at the 30 s ceiling.
 ### Why this matters beyond this scenario
 
 Mapping over a collection is not an exotic thing to ask an integration runtime to
-do — it is close to the definition of one. a commercial platform's own batch use case processes
-CSV files of 100 MB to 2 GB record by record. Any Octo flow that uses
+do — it is close to the definition of one. Record-oriented batch work routinely
+processes files of hundreds of megabytes row by row. Any Octo flow that uses
 `foreach mode: map` over more than a few hundred elements will fall off this cliff,
 and it will do so silently: throughput degrades smoothly with input size, so it
 looks like "big payloads are slow" rather than like a defect.
@@ -99,7 +100,7 @@ PAYLOAD_BYTES=102400 task bench SCENARIO=006-json-transform
 # The two implementations against each other
 ROUTE=/transform-foreach task bench SCENARIO=006-json-transform
 
-# Closed-model sweep, comparable to a commercial platform's payload transformation charts
+# Closed-model sweep, for reading against published benchmarks
 task vuramp SCENARIO=006-json-transform
 ```
 

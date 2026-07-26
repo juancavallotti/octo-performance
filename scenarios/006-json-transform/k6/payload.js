@@ -1,9 +1,7 @@
 // Request payload for scenario 006, generated once per VU at init time.
 //
-// PAYLOAD_BYTES picks a rung on the size ladder. a commercial platform benchmarks payload transformation at a
-// fixed shape and separately benchmarks the proxy at 1 KB and 1 MB; this scenario
-// sweeps the size so that "how does transformation cost scale with payload" has an
-// answer rather than an anecdote.
+// PAYLOAD_BYTES picks a rung on the size ladder, so that "how does transformation
+// cost scale with payload" has an answer rather than an anecdote.
 //
 // Generating the body once and reusing it is deliberate: building a 1 MB JSON
 // document per iteration would make k6, not the runtime, the thing under test.

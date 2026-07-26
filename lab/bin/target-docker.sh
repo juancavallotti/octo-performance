@@ -10,11 +10,10 @@
 # nanoseconds) rather than from `docker stats` percentages, so the container target
 # is measured with the same rigour as the native one.
 #
-# CPU_LIMIT sizes the container the way a commercial platform sizes a a hosted platform worker. Their report
-# defines a CPU as "the number of CPU cores available to a given deployment" and
-# publishes every number at 0.1, 1, and 4 CPUs; `--cpus` is the same quantity, so
-# running at CPU_LIMIT=1 puts our numbers on their x-axis instead of on our laptop's.
-# See COMPARISON.md.
+# CPU_LIMIT caps the container's CPU the way a hosted deployment would be sized, so
+# a run describes a known deployment size rather than "whatever the laptop had
+# spare". That is what makes a number comparable to one published elsewhere; see
+# COMPARISON.md.
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
@@ -51,8 +50,8 @@ start() {
   done
 
   # Deployment envelope. Unset means "whatever the host has", which is the right
-  # default for tracking Octo against itself; CPU_LIMIT is for the cross-vendor
-  # comparison, where the envelope has to match the one the other vendor published.
+  # default for tracking Octo against itself; CPU_LIMIT is for runs whose point is
+  # comparability, where the envelope has to be a stated size.
   local limit_args=()
   if [ -n "${CPU_LIMIT:-}" ]; then
     limit_args+=(--cpus "$CPU_LIMIT")
@@ -61,13 +60,13 @@ start() {
     if [ "$ncpu" != "0" ] && awk "BEGIN{exit !($CPU_LIMIT > $ncpu)}"; then
       warn "CPU_LIMIT=$CPU_LIMIT exceeds the ${ncpu} CPUs the daemon has; the limit will not bind"
     fi
-    # Sized from a commercial platform's own instance table so the memory envelope matches the
-    # CPU one: 0.1 CPU was a t3.micro (1 GB), 1 CPU a t3.medium (4 GB), and the
-    # 4 CPU on-premise case a c5n.xlarge (10.5 GB).
+    # Memory tracks CPU unless told otherwise, so a capped run describes a plausible
+    # machine rather than a fraction of a core with the whole host's RAM behind it.
     if [ -z "${MEM_LIMIT:-}" ]; then
       case "$CPU_LIMIT" in
         0.1) MEM_LIMIT=1g ;;
         1)   MEM_LIMIT=4g ;;
+        2)   MEM_LIMIT=8g ;;
         4)   MEM_LIMIT=10g ;;
       esac
     fi

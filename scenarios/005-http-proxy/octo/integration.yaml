@@ -1,8 +1,9 @@
 # Scenario 005 — HTTP proxy. Single source of truth for this integration.
 #
-# The canonical API-gateway shape, described in the scenario README as "one of
-# the most common integration shapes": an inbound request passed to a backend that
-# takes 70 ms to answer, with the response returned to the caller.
+# The canonical API-gateway shape: an inbound request passed through to a backend
+# that takes 70 ms to answer, with the response returned to the caller. 70 ms is a
+# realistic figure for a remote service call — a database-backed API in another
+# availability zone, or a third-party endpoint over the public internet.
 #
 # The 70 ms is the whole point. Every other scenario in this lab is CPU-bound, so a
 # request occupies a worker only for as long as it takes to compute. Here a request

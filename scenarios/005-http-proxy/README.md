@@ -1,12 +1,12 @@
 # 005 — HTTP proxy
 
-The shape a commercial platform benchmarks first and calls "one of the most common use cases for
-the platform": a request arrives, is passed to a backend that takes 70 ms to answer, and the
-response goes back to the caller.
+The canonical API-gateway shape: a request arrives, is passed to a backend that takes
+70 ms to answer, and the response goes back to the caller.
 
-This is the lab's first scenario built deliberately to be *comparable to somebody
-else's published numbers* rather than only to Octo's own. See
-[COMPARISON.md](../../COMPARISON.md).
+70 ms stands in for a real remote dependency — a database-backed service an availability
+zone away, or a third-party API over the public internet. It is the first scenario here
+built to a shape that other runtimes are commonly measured on, so its numbers can be read
+in context rather than only against Octo's own. See [COMPARISON.md](../../COMPARISON.md).
 
 ## The integration
 
@@ -29,8 +29,8 @@ CPU as possible on a shared host.
 | Connectors | `http` (source), `http-client` (backend) |
 | Blocks | `rest` |
 | Knobs | `workers`, `buffer`, `pool` |
-| Backend delay | 70 ms (a commercial platform's figure) |
-| Payload | 1 KB (their headline chart); 1 MB via `BACKEND_SIZE=1048576` |
+| Backend delay | 70 ms |
+| Payload | 1 KB; 1 MB via `BACKEND_SIZE=1048576` |
 
 ## Why this scenario is different
 
@@ -116,11 +116,11 @@ Why it matters beyond this benchmark:
 task smoke SCENARIO=005-http-proxy
 task bench SCENARIO=005-http-proxy TUNED_WORKERS=512 TUNED_BUFFER=1024 TUNED_POOL=8
 
-# The closed-model sweep, for comparison against published vendor curves
+# The closed-model sweep, for reading against published benchmarks
 task vuramp SCENARIO=005-http-proxy VARIANT=baseline
 task vuramp SCENARIO=005-http-proxy VARIANT=tuned TUNED_WORKERS=512
 
-# a commercial platform's 1 MB streaming comparison
+# Large-payload case: measures copying rather than concurrency
 BACKEND_SIZE=1048576 task bench SCENARIO=005-http-proxy
 ```
 
@@ -129,9 +129,9 @@ stops it. Both need the Go toolchain.
 
 ## Caveats specific to this scenario
 
-- The backend shares a host with the runtime and the load generator. a commercial platform put
-  all three on separate EC2 instances. The backend sleeps rather than works,
-  which keeps the contention small, but it is not zero.
+- The backend shares a host with the runtime and the load generator; a serious
+  benchmark gives each its own machine. The backend sleeps rather than works, which
+  keeps the contention small, but it is not zero.
 - The steady-state rate of 800 req/s is chosen so that the two arms **cannot both
   pass**. The baseline arm's dropped iterations are genuine server saturation — no
   VU pool can sustain 800 req/s against a hard 108 req/s ceiling — not the

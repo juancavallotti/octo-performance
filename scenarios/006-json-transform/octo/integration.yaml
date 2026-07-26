@@ -1,13 +1,12 @@
 # Scenario 006 — payload transformation. Single source of truth for this integration.
 #
-# Payload transformation, described in three steps:
-# "An HTTP listener receives a payload in the source format. The runtime transforms
-# the input payload into the target format. The payload is returned."
+# Payload transformation, the workload every integration runtime is measured on: an
+# HTTP listener receives a payload in the source format, the runtime transforms it
+# into the target format, and the result is returned.
 #
-# Three transformations matter in practice — CSV→JSON, JSON→JSON, XML→JSON. Only the
-# middle one has an Octo equivalent: CEL has no CSV or XML parser and the runtime
-# ships no block providing one, so two of the three cannot be built. See
-# COMPARISON.md.
+# The three formats that matter in practice are JSON, CSV and XML. Only JSON has an
+# Octo equivalent: CEL has no CSV or XML parser and the runtime ships no block
+# providing one, so two of the three cannot be built. See COMPARISON.md.
 #
 # TWO flows do the same transformation by different means, because the difference
 # between them turned out to be the largest single finding in this lab:

@@ -3,8 +3,8 @@
 
 Usage: vuramp-report.py <run-dir>
 
-The output is deliberately the same table a commercial platform's charts show: throughput and
-CPU% against virtual users, with the knee point marked. That is the only form in
+The output is deliberately the shape most published benchmarks use: throughput and
+CPU against virtual users, with the knee point marked. That is the only form in
 which our numbers and theirs can sit on the same axis. Everything else in this lab
 is open-model; see COMPARISON.md for why this one is not, and what that costs.
 """
@@ -47,7 +47,8 @@ def parse_resources(path):
     return {
         "windowSeconds": round(window, 3),
         "cpuSecondsWindow": round(cpu, 4),
-        # Expressed as percent of ONE core, matching how a commercial platform reports it.
+        # Expressed as percent of ONE core, which is how such charts are usually
+        # drawn.
         "cpuPct": round(cpu / window * 100, 1) if window > 0 else None,
         "rssBytesPeak": max(rss),
         "rssBytesMean": int(statistics.fmean(rss)),
@@ -96,10 +97,10 @@ def main():
         print("  no VU levels found", file=sys.stderr)
         return 1
 
-    # The knee: the level with the highest sustained throughput. a commercial platform defines it
-    # as "the point at which the throughput reaches the maximum value, usually due to
-    # the exhaustion of some resource". Levels that failed requests are not eligible
-    # — a server shedding load is not at its knee, it is past it.
+    # The knee: the level with the highest sustained throughput — the point at which
+    # throughput stops rising, usually because some resource is exhausted. Levels
+    # that failed requests are not eligible; a server shedding load is not at its
+    # knee, it is past it.
     healthy = [l for l in levels if (l["failedRate"] or 0) < 0.01 and l["tps"]]
     knee = max(healthy, key=lambda l: l["tps"]) if healthy else None
 
@@ -120,8 +121,8 @@ def main():
     a("")
     if container.get("cpuLimit"):
         a(f"Container capped at **{container['cpuLimit']} CPU** "
-          f"({container.get('memLimit') or 'memory uncapped'}) to match the envelope "
-          f"the comparison numbers were published at.")
+          f"({container.get('memLimit') or 'memory uncapped'}), so this run describes a "
+          f"stated deployment size rather than whatever the host had spare.")
         a("")
     a(f"Hardware: {hw.get('cpuModel', '?')}, {hw.get('logicalCores', '?')} logical cores, "
       f"{hw.get('memoryBytes', 0) / 1024**3:.0f} GB.")
@@ -130,7 +131,7 @@ def main():
       "population of virtual users that each wait for a response before sending the "
       "next request, so throughput is what the clients could *extract*, not what the "
       "server was *asked* for. It exists to produce a curve comparable to published "
-      "vendor benchmarks, which are all closed-model. Do not compare these numbers "
+      "benchmarks, which are almost all closed-model. Do not compare these numbers "
       "with the open-model numbers elsewhere in `results/`.")
     a("")
 
@@ -174,8 +175,8 @@ def main():
     a("")
     a("---")
     a("")
-    a("See [COMPARISON.md](../../COMPARISON.md) for the published numbers this shape "
-      "is meant to be read against, and what the remaining differences cost.")
+    a("See [COMPARISON.md](../../COMPARISON.md) for what has to match before this shape "
+      "can be read against a number published elsewhere.")
     a("")
 
     with open(os.path.join(run_dir, "REPORT.md"), "w") as fh:

@@ -1,6 +1,5 @@
-// Closed-model VU step for scenario 006 — comparable to a commercial platform's payload transformation charts,
-// which plot TPS against virtual users and find the knee at 10 VUs for every
-// instance size, transformation being CPU-bound.
+// Closed-model VU step for scenario 006. Transformation is CPU-bound, so the knee
+// arrives at low concurrency. See COMPARISON.md.
 
 import http from 'k6/http';
 import { vuStepOptions, targetUrl, env, envInt } from '../../../lab/k6/lib/options.js';

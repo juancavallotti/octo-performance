@@ -57,6 +57,7 @@ tasks:
         TUNED_MAXIDLECONNS={{.TUNED_MAXIDLECONNS | default ""}}
         TUNED_LISTENERS={{.TUNED_LISTENERS | default ""}}
         CPU_LIMIT={{.CPU_LIMIT | default ""}}
+        MEM_LIMIT={{.MEM_LIMIT | default ""}}
         ./lab/bin/run-bench.sh
 
   capacity:
@@ -66,14 +67,15 @@ tasks:
         VARIANTS=baseline ./lab/bin/run-bench.sh
 
   vuramp:
-    desc: 'Closed-model VU sweep — the only test whose numbers are comparable to published vendor benchmarks'
+    desc: 'Closed-model VU sweep — the only test whose numbers are comparable to published benchmarks'
     cmds:
-      # Closed model on purpose, and only here. See COMPARISON.md: every published
-      # a commercial platform and Camel figure is throughput against a fixed virtual-user
+      # Closed model on purpose, and only here. See COMPARISON.md: published
+      # figures are almost always throughput against a fixed virtual-user
       # population, and a "knee point" only exists under that model.
       - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}}
         VARIANT={{.VARIANT | default "baseline"}}
         CPU_LIMIT={{.CPU_LIMIT | default ""}}
+        MEM_LIMIT={{.MEM_LIMIT | default ""}}
         VU_LEVELS={{.VU_LEVELS | default ""}}
         TUNED_WORKERS={{.TUNED_WORKERS | default ""}}
         TUNED_BUFFER={{.TUNED_BUFFER | default ""}}

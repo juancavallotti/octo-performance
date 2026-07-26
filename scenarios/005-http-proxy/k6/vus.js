@@ -1,8 +1,9 @@
 // Closed-model VU step for scenario 005.
 //
-// Run by lab/bin/run-vuramp.sh, one execution per VU level. This is the only load
-// model in the lab that matches how a commercial platform and Camel publish their numbers, and
-// it exists solely so this scenario's curve can be read next to theirs.
+// Run by lab/bin/run-vuramp.sh, one execution per VU level. This is the only
+// closed-model test in the lab; it exists so this scenario's curve can be read
+// next to published benchmarks, which are almost all closed-model. See
+// COMPARISON.md.
 
 import http from 'k6/http';
 import { vuStepOptions, targetUrl, env, envInt } from '../../../lab/k6/lib/options.js';
