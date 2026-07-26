@@ -31,8 +31,9 @@ These are not style preferences. Breaking one invalidates the numbers.
 2. **One scenario, one config.** A scenario declares exactly one `octo/integration.yaml` and names
    its knobs in `scenario.env` as `TUNABLES`. Both arms are *derived* from that file by
    `lab/bin/render-config.py`, so they cannot drift: `baseline` has every tunable stripped,
-   `tuned` has them rewritten to the requested values. Knobs are plain integers, **not**
-   `${ENV}` placeholders — substitution does not reach root-flow fields (see below).
+   `tuned` has them rewritten to the requested values. Prefer plain integers: the rendered file
+   is archived beside the result as `config.yaml`, and a literal there is provenance where a
+   `${ENV}` placeholder would only record that the value came from somewhere.
 3. **Baseline strips, it never hardcodes.** Writing `workers: 8` into a baseline config would
    freeze it at today's default and silently stop tracking the real one. Stripping the key makes
    the runtime fall back to whatever it actually ships with, so if a future Octo version changes a
@@ -63,17 +64,59 @@ task smoke    SCENARIO=001-template-page             # correctness gate
 task capacity SCENARIO=001-template-page             # find the knee
 task sweep    SCENARIO=001-template-page             # grid search the tuning knobs
 task bench    SCENARIO=001-template-page             # baseline + tuned, REPS=3
+task build    TARGET=native                          # build the runtime from source
+task compare  SCENARIO=001-template-page             # release vs source build, back to back
 task report   RUN=<run-id>                           # regenerate a REPORT.md
 task index                                           # regenerate results/index.md
 ```
 
-Common variables: `TARGET=native|docker`, `REPS=1`, `HOST=local`, `TEST=steady|capacity`,
-`TUNED_WORKERS=16 TUNED_BUFFER=256 TUNED_POOL=8`, `OCTO_IMAGE=juancavallotti/octo-runtime:0.4.3`,
-`COOLDOWN_SECONDS=15`. A knob the Taskfile does not forward works as an environment prefix,
-since task inherits the environment: `TUNED_MAXOPENCONNS=64 task bench SCENARIO=...`.
+Common variables: `TARGET=native|docker`, `BUILD=release|dev`, `REPS=1`, `HOST=local`,
+`TEST=steady|capacity`, `TUNED_WORKERS=16 TUNED_BUFFER=256 TUNED_POOL=8`,
+`OCTO_IMAGE=juancavallotti/octo-runtime:0.4.3`, `COOLDOWN_SECONDS=15`. A knob the Taskfile does
+not forward works as an environment prefix, since task inherits the environment:
+`TUNED_MAXOPENCONNS=64 task bench SCENARIO=...`.
 
-**Benchmarking a specific build.** `OCTO_BIN` points the native target at a particular binary
-instead of whatever is on `PATH`, which is how two releases get compared on the same host:
+## Two axes: TARGET and BUILD
+
+`TARGET` says how the runtime is **deployed** — `native` for the binary on the host, `docker` for
+the container image. `BUILD` says where the artifact **came from**:
+
+| `BUILD` | Native target | Docker target |
+|---|---|---|
+| `release` | `OCTO_BIN`, else `PATH` | `OCTO_IMAGE` |
+| `dev` | built from `OCTO_SRC` (default `../octo`) | image built from `$OCTO_SRC/runtime/Dockerfile` |
+
+All four combinations work. `BUILD=dev` builds before the run, caching a clean checkout by commit
+so re-running costs nothing; a dirty tree is rebuilt every time, because the only honest
+assumption about uncommitted work is that it moved.
+
+**Why a dev build gets its own version string.** The source declares the same version constant as
+the last release, so `octo version` cannot tell them apart — a dev run would take the release's
+run id, collide with it, and be filed as a repeat measurement. A dev build is therefore stamped
+`0.4.3-dev.<commit>` (plus `.dirty`), and `env.json` carries the full source provenance: path,
+commit, branch, subject, tree state, Go version, build tags.
+
+The native dev build carries no build tags and the container dev build carries `k8s`, matching
+how each artifact actually ships. That is not a detail: the tag decides which services provider
+is compiled in, so building both the same way would compare against something nobody runs.
+
+```bash
+task bench SCENARIO=005-http-proxy BUILD=dev           # measure unreleased work
+task compare SCENARIO=005-http-proxy                   # and against the release, back to back
+OCTO_SRC=~/src/octo task build TARGET=docker           # a checkout somewhere else
+```
+
+`task compare` runs both arms in one invocation on purpose: they then share a host, a thermal
+state and a cooldown. Two runs a day apart on a laptop that throttles are not a before-and-after.
+Its report states the rep-to-rep spread within each arm and labels any delta smaller than that as
+noise, so a 3% difference is never presented as an improvement.
+
+**A dev result is not a published result.** It describes code that has not shipped, and
+`REPORT.md` says so. A dirty-tree result is not reproducible by anyone and is marked more
+strongly. Quote release numbers; use dev numbers to decide whether a change worked.
+
+**Benchmarking a specific release.** `OCTO_BIN` points the native target at a particular binary,
+which is how two releases get compared on the same host:
 
 ```bash
 OCTO_BIN=~/.octo-versions/octo-0.4.2 task bench SCENARIO=001-template-page
@@ -98,9 +141,9 @@ session on it.
    connectors and blocks, what the request and response look like, why it is interesting. The
    methodology requires the integration to be described, so this is not optional.
 2. `octo/integration.yaml` — the flow, with its knobs written as **plain integers**
-   (`workers: 8`). Do not use `${FLOW_WORKERS}`-style placeholders: `${ENV}` substitution does
-   not reach root-flow fields and fails at load. Declare each knob in exactly **one** place, or
-   the renderer — which rewrites every occurrence of a name — will set them all together.
+   (`workers: 8`) so the archived config records the value that ran. Declare each knob in exactly
+   **one** place, or the renderer — which rewrites every occurrence of a name — will set them all
+   together.
 3. `scenario.env` — `ROUTE`, `TUNABLES` (default `workers buffer pool`; add e.g. `maxOpenConns`
    or `listeners` where the scenario exposes them), `STEADY_RATE`, durations, and the sweep grid.
    Set `READY_ROUTE` if the measured route is a POST or otherwise cannot answer a bare GET.

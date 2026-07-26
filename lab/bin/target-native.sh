@@ -24,8 +24,8 @@ start() {
   if [ "$OS" = "Darwin" ]; then time_args=(-l -o "$state/time.txt")
   else                          time_args=(-v -o "$state/time.txt"); fi
 
-  # The tuning knobs are baked into the rendered config, not passed here: Octo's
-  # ${ENV} substitution does not reach root-flow fields.
+  # The tuning knobs arrive baked into the rendered config, so nothing about the
+  # arm under test is passed here.
   /usr/bin/time "${time_args[@]}" \
     "$bin" run --config "$config_dir" >"$state/octo.log" 2>&1 &
   local wrapper=$!

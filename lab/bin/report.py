@@ -277,6 +277,19 @@ def render(run_dir, env, footprint, groups, test):
     if hw.get("cloudMachineType"):
         a(f"| Machine type | {hw['cloudMachineType']} |")
     a(f"| Octo version under test | **{env.get('versionUnderTest')}** |")
+    bld = env.get("build") or {}
+    src = bld.get("source") or {}
+    if bld.get("channel") == "dev":
+        a(f"| Build channel | **dev** — built from source, not a published release |")
+        a(f"| Source commit | `{src.get('shortCommit')}` on `{src.get('branch')}`"
+          f"{' — **dirty tree**' if src.get('dirty') else ''} |")
+        if src.get("subject"):
+            a(f"| Commit subject | {src['subject']} |")
+        a(f"| Source path | `{src.get('path')}` |")
+        a(f"| Go | {bld.get('goVersion')}"
+          f"{', tags `' + bld['buildTags'] + '`' if bld.get('buildTags') else ''} |")
+    else:
+        a(f"| Build channel | release |")
     rt = env.get("runtime", {})
     a(f"| Runtime artifact | `{rt.get('artifact')}` ({fmt_bytes(rt.get('artifactBytes'))}) |")
     if env.get("container"):
@@ -292,6 +305,16 @@ def render(run_dir, env, footprint, groups, test):
         a("> **Load generator shares this host with the server under test.** k6 and Octo compete "
           "for the same cores, which compresses the absolute ceiling. Both variants pay this cost "
           "equally, so the baseline↔tuned comparison stands; treat absolute numbers as a floor.")
+        a("")
+    if bld.get("channel") == "dev":
+        if src.get("dirty"):
+            a("> **Built from a source tree with uncommitted changes.** Nobody can check out what "
+              "produced this number, so it is a working measurement and not a citable one. Commit "
+              "the tree and re-run before quoting it.")
+        else:
+            a(f"> **Built from source at `{src.get('shortCommit')}`, not from a release.** Compare it "
+              "against a release run of the same scenario on the same host to see what the change "
+              "did; do not quote it as the runtime's performance, since the code has not shipped.")
         a("")
     if env.get("target") == "docker":
         a("> **Container numbers include Docker Desktop's network path.** Ports are published "
@@ -477,6 +500,8 @@ def main():
         "target": env.get("target"),
         "hostProfile": env.get("hostProfile"),
         "octoVersion": env.get("versionUnderTest"),
+        "buildChannel": env.get("buildChannel", "release"),
+        "build": env.get("build"),
         "test": test,
         "reps": len(groups.get("baseline", {}).get("cells", [])),
         "footprint": footprint,

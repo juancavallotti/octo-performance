@@ -62,17 +62,23 @@ DOCKER_NCPU=0
 DOCKER_MEM_BYTES=0
 DOCKER_SERVER=""
 
+BUILD_CHANNEL="$(build_channel)"
+# For a dev build the run is attributable only through the source commit, so the
+# provenance record travels with the result rather than living in someone's shell
+# history. Empty for BUILD=release, where the version string is the whole story.
+BUILD_META="$(BUILD="$BUILD_CHANNEL" "$LAB_BIN/build-octo.sh" "$TARGET" --meta 2>/dev/null || true)"
+
 case "$TARGET" in
   native)
-    OCTO_VERSION="$(octo_version)"
+    OCTO_VERSION="$(version_under_test native)"
     OCTO_ARTIFACT="$(octo_bin)"
     if [ -n "$OCTO_ARTIFACT" ] && [ -f "$OCTO_ARTIFACT" ]; then
       OCTO_ARTIFACT_BYTES="$(wc -c < "$OCTO_ARTIFACT" | tr -d ' ')"
     fi
     ;;
   docker)
-    IMAGE_REF="${OCTO_IMAGE:-juancavallotti/octo-runtime:latest}"
-    OCTO_VERSION="$(docker_image_version "$IMAGE_REF")"
+    IMAGE_REF="$(octo_image)"
+    OCTO_VERSION="$(version_under_test docker)"
     IMAGE_DIGEST="$(docker image inspect "$IMAGE_REF" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
     [ -n "$IMAGE_DIGEST" ] || IMAGE_DIGEST="$(docker image inspect "$IMAGE_REF" --format '{{.Id}}' 2>/dev/null || true)"
     OCTO_ARTIFACT_BYTES="$(docker image inspect "$IMAGE_REF" --format '{{.Size}}' 2>/dev/null || echo 0)"
@@ -94,7 +100,7 @@ export CPU_MODEL CPU_LOGICAL CPU_PHYSICAL CPU_PERF CPU_EFF MEM_BYTES \
        OS_NAME OS_VERSION OS_BUILD ARCH FD_LIMIT CLOUD_MACHINE_TYPE \
        OCTO_VERSION OCTO_ARTIFACT OCTO_ARTIFACT_BYTES IMAGE_REF IMAGE_DIGEST \
        DOCKER_NCPU DOCKER_MEM_BYTES DOCKER_SERVER K6_VERSION LAB_COMMIT LAB_DIRTY \
-       TARGET OUT
+       TARGET OUT BUILD_CHANNEL BUILD_META
 
 mkdir -p "$(dirname "$OUT")"
 python3 - <<'PY'
@@ -113,6 +119,8 @@ env = {
     "target": target,
     "scenario": os.environ.get("SCENARIO_ID", ""),
     "versionUnderTest": os.environ.get("OCTO_VERSION", "unknown"),
+    # release = the published distribution; dev = built here from source.
+    "buildChannel": os.environ.get("BUILD_CHANNEL", "release"),
     "hardware": {
         "cpuModel":     os.environ.get("CPU_MODEL", "unknown"),
         "arch":         os.environ.get("ARCH", "unknown"),
@@ -145,6 +153,25 @@ env = {
                                    for h in ("localhost", "127.0.0.1")),
     },
 }
+
+# The source a dev build came from. Without this a "0.4.3-dev.dd065f8" number is
+# a string nobody can trace: which checkout, which branch, was the tree dirty.
+raw_meta = os.environ.get("BUILD_META", "").strip()
+if raw_meta:
+    try:
+        meta = json.loads(raw_meta)
+    except json.JSONDecodeError:
+        meta = None
+    if meta:
+        env["build"] = {
+            "channel":    meta.get("channel"),
+            "buildId":    meta.get("buildId"),
+            "version":    meta.get("version"),
+            "source":     meta.get("source"),
+            "goVersion":  meta.get("goVersion"),
+            "buildTags":  meta.get("buildTags"),
+            "builtAt":    meta.get("builtAt"),
+        }
 
 if target == "docker":
     env["container"] = {

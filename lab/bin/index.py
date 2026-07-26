@@ -36,11 +36,20 @@ def gain(base, tuned):
     return f"{(tuned - base) / base * 100:+.1f}%"
 
 
+def channel(r):
+    """Which build produced this run: the published release, or local source."""
+    if r.get("buildChannel") == "dev":
+        src = (r.get("build") or {}).get("source") or {}
+        return "dev (dirty)" if src.get("dirty") else "dev"
+    return "release"
+
+
 def main():
     results_dir = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "results")
     os.makedirs(results_dir, exist_ok=True)
 
     runs = []
+    comparisons = []
     skipped = 0
     for name in sorted(os.listdir(results_dir), reverse=True):
         p = os.path.join(results_dir, name, "result.json")
@@ -55,6 +64,11 @@ def main():
         # stay on disk; they just do not appear here.
         if r.get("test") == "capacity":
             skipped += 1
+            continue
+        # A comparison is a view over runs that are already listed, not a run.
+        if r.get("test") == "compare":
+            r["_dir"] = name
+            comparisons.append(r)
             continue
         r["_dir"] = name
         runs.append(r)
@@ -82,23 +96,64 @@ def main():
     # ---- all runs ----
     a("## Runs")
     a("")
-    a("| Run | Scenario | Target | Octo | Baseline req/s | Tuned req/s | Gain | "
+    a("| Run | Scenario | Target | Build | Octo | Baseline req/s | Tuned req/s | Gain | "
       "Baseline CPU-ms/req | Tuned CPU-ms/req |")
-    a("|---|---|---|---|---|---|---|---|---|")
+    a("|---|---|---|---|---|---|---|---|---|---|")
     for r in runs:
         b, t = r.get("baseline") or {}, r.get("tuned") or {}
         a(f"| [{r['_dir']}]({r['_dir']}/REPORT.md) | {r.get('scenario', '')} | "
-          f"{r.get('target', '')} | {r.get('octoVersion', '')} | "
+          f"{r.get('target', '')} | {channel(r)} | {r.get('octoVersion', '')} | "
           f"{n(b.get('achievedRps'))} | {n(t.get('achievedRps'))} | "
           f"{gain(b.get('achievedRps'), t.get('achievedRps'))} | "
           f"{n(b.get('cpuMsPerRequest'), 3)} | {n(t.get('cpuMsPerRequest'), 3)} |")
     a("")
+    a("**Build** is `release` for the published distribution and `dev` for a binary built "
+      "from a source checkout. A dev version string carries the source commit "
+      "(`0.4.3-dev.dd065f8`) so unreleased work never gets filed as a repeat measurement of "
+      "the release it branched from.")
+    a("")
+
+    # ---- comparisons ----
+    #
+    # First, because it is the view that answers a question directly: two builds
+    # of the same scenario measured back to back, with the noise floor stated.
+    if comparisons:
+        a("## Comparisons")
+        a("")
+        a("Two builds of the same scenario, measured back to back in one invocation so they "
+          "share a thermal state and a cooldown. Produced by `task compare`; the delta column "
+          "is throughput, and each report states the rep-to-rep spread below which a delta "
+          "means nothing.")
+        a("")
+        a("| Comparison | Scenario | Target | Arms | Tuned req/s | Change | Noise floor |")
+        a("|---|---|---|---|---|---|---|")
+        for c in comparisons:
+            arms = c.get("arms") or []
+            if len(arms) < 2:
+                continue
+            names = " → ".join(x.get("octoVersion", "?") for x in arms)
+
+            def rps(x):
+                t = x.get("tuned") or {}
+                b = x.get("baseline") or {}
+                return t.get("achievedRps") or b.get("achievedRps")
+
+            first, last = rps(arms[0]), rps(arms[-1])
+            change = (f"{(last - first) / first * 100:+.1f}%"
+                      if first and last is not None else "n/a")
+            a(f"| [{c['_dir']}]({c['_dir']}/REPORT.md) | {c.get('scenario', '')} | "
+              f"{c.get('target', '')} | {names} | "
+              f"{n(first)} → {n(last)} | {change} | "
+              f"{n(c.get('noiseFloorPct'), 1, '%')} |")
+        a("")
 
     # ---- regression view ----
     a("## Regression view")
     a("")
-    a("Same scenario and target across Octo versions. A drop in throughput or a rise in "
-      "CPU-ms/request between versions is a regression worth investigating.")
+    a("Same scenario and target across Octo versions, released and unreleased alike. A drop in "
+      "throughput or a rise in CPU-ms/request between versions is a regression worth "
+      "investigating. Rows whose version carries `-dev.<commit>` were built from source and "
+      "have not shipped.")
     a("")
     by_key = defaultdict(list)
     for r in runs:

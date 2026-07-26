@@ -16,6 +16,10 @@ IDLE_HOLD="${IDLE_HOLD:-30}"
 load_host "${HOST:-local}"
 : "${ROUTE:?ROUTE must be set (source the scenario env first)}"
 
+# footprint.sh is the one entry point that does not go through preflight, so it
+# produces the dev artifact itself. A no-op for BUILD=release.
+ensure_octo_build "$TARGET"
+
 STAGE="$REPO_ROOT/.stage/footprint"
 STATE="$REPO_ROOT/.stage/footprint-state"
 DRIVER="$LAB_BIN/target-$TARGET.sh"
@@ -42,7 +46,7 @@ case "$TARGET" in
     [ -n "$ARTIFACT" ] && [ -f "$ARTIFACT" ] && ARTIFACT_BYTES="$(wc -c < "$ARTIFACT" | tr -d ' ')"
     ;;
   docker)
-    ARTIFACT="${OCTO_IMAGE:-juancavallotti/octo-runtime:latest}"
+    ARTIFACT="$(octo_image)"
     ARTIFACT_BYTES="$(docker image inspect "$ARTIFACT" --format '{{.Size}}' 2>/dev/null || echo 0)"
     ;;
 esac

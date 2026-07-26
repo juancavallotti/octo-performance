@@ -68,8 +68,7 @@ for w in $WORKERS_LIST; do
     step "[$i/$total] workers=$w buffer=$b pool=$p"
     printf '{"workers":"%s","buffer":"%s","pool":"%s"}\n' "$w" "$b" "$p" > "$cell/knobs.json"
 
-    # Re-render per combination: the knobs are baked into the config, because
-    # Octo's ${ENV} substitution does not reach root-flow fields.
+    # Re-render per combination, so each cell archives the exact config it ran.
     export TUNED_WORKERS="$w" TUNED_BUFFER="$b" TUNED_POOL="$p"
     "$LAB_BIN/stage-config.sh" "$SCENARIO_DIR" tuned "$STAGE" >/dev/null
     cp "$STAGE/octo.yaml" "$cell/config.yaml"

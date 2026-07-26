@@ -100,14 +100,91 @@ scenario_teardown() {
 
 # --------------------------------------------------------------- versions ----
 
+# ------------------------------------------------------------ build channel ---
+#
+# BUILD is a second axis, orthogonal to TARGET. TARGET says how the runtime is
+# deployed (a binary on the host, or the container image). BUILD says where the
+# artifact came from:
+#
+#   release   the published distribution — what users actually run
+#   dev       built here from a source checkout — unreleased work
+#
+# Both combinations are meaningful, and they are kept apart everywhere: a dev
+# build's version string carries its source commit, so it gets its own run id and
+# its own row in the regression view rather than being filed as a repeat of the
+# release it was branched from.
+# Validated once, here, rather than inside build_channel: that function is called
+# from inside $( ), where `die` would only kill the subshell and a typo would sail
+# through as if it had said "release".
+case "${BUILD:-release}" in
+  release|dev) ;;
+  *) die "unknown BUILD '${BUILD}' (expected release or dev)" ;;
+esac
+
+build_channel() { printf '%s\n' "${BUILD:-release}"; }
+
+# ensure_octo_build <target> — build the dev artifact once, at the entry point.
+#
+# Exported so child scripts within the same run resolve the artifact without each
+# one shelling out to the builder. A no-op for BUILD=release.
+ensure_octo_build() {
+  [ "$(build_channel)" = "dev" ] || return 0
+  local t="${1:-${TARGET:-native}}"
+  local ref
+  ref="$("$LAB_BIN/build-octo.sh" "$t")" || die "dev build failed"
+  export OCTO_DEV_ARTIFACT="$ref"
+}
+
+# The dev artifact for a target.
+#
+# Resolution comes first and a build only happens if nothing is there yet, so the
+# artifact is frozen for the whole run: a source tree edited between repetitions
+# cannot silently swap the binary halfway through a measurement.
+dev_artifact() {
+  [ -n "${OCTO_DEV_ARTIFACT:-}" ] && { printf '%s\n' "$OCTO_DEV_ARTIFACT"; return 0; }
+  local t="${1:-${TARGET:-native}}" ref
+  if ref="$("$LAB_BIN/build-octo.sh" "$t" --resolve 2>/dev/null)"; then
+    printf '%s\n' "$ref"
+    return 0
+  fi
+  "$LAB_BIN/build-octo.sh" "$t"
+}
+
+# One field out of the dev build's provenance record.
+dev_build_field() {
+  local key="$1" t="${2:-${TARGET:-native}}"
+  "$LAB_BIN/build-octo.sh" "$t" --meta 2>/dev/null \
+    | python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+for part in sys.argv[1].split("."):
+    d = (d or {}).get(part) if isinstance(d, dict) else None
+# Booleans come back as shell-comparable "true"/"false", not Python "True".
+print("" if d is None else ("true" if d is True else "false" if d is False else d))' "$key"
+}
+
 # The native binary under test. Defaults to whatever is on PATH; set OCTO_BIN to
 # benchmark a specific build — e.g. two releases side by side on the same host,
-# which is the whole point of tracking regressions.
+# which is the whole point of tracking regressions. BUILD=dev overrides both with
+# the artifact built from source.
 octo_bin() {
-  if [ -n "${OCTO_BIN:-}" ]; then
+  if [ "$(build_channel)" = "dev" ]; then
+    dev_artifact native
+  elif [ -n "${OCTO_BIN:-}" ]; then
     printf '%s\n' "$OCTO_BIN"
   else
     command -v octo 2>/dev/null || true
+  fi
+}
+
+# The container image under test, honouring the same axis.
+octo_image() {
+  if [ "$(build_channel)" = "dev" ]; then
+    dev_artifact docker
+  else
+    printf '%s\n' "${OCTO_IMAGE:-juancavallotti/octo-runtime:latest}"
   fi
 }
 
@@ -145,10 +222,21 @@ docker_image_version() {
 }
 
 # version_under_test <target> — the string that stamps the run id.
+#
+# For a dev build this is the buildId, e.g. "0.4.3-dev.dd065f8": the source
+# declares the same version constant as the last release, so without the commit
+# a dev run and the release run collide on the run id and the regression view
+# reads them as one version measured twice.
 version_under_test() {
+  if [ "$(build_channel)" = "dev" ]; then
+    local id; id="$(dev_build_field buildId "$1")"
+    [ -n "$id" ] && { printf '%s\n' "$id"; return; }
+    echo "unknown-dev"
+    return
+  fi
   case "$1" in
     native) octo_version ;;
-    docker) docker_image_version "${OCTO_IMAGE:-juancavallotti/octo-runtime:latest}" ;;
+    docker) docker_image_version "$(octo_image)" ;;
     *) echo "unknown" ;;
   esac
 }

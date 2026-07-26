@@ -8,10 +8,8 @@
 #              follows it, which is what "out of the box" is supposed to mean.
 #   tuned    — the knobs below are rewritten to the values being tested.
 #
-# The knobs are plain integers, NOT ${FLOW_WORKERS}-style placeholders: verified
-# against Octo 0.4.2, ${...} substitution does not reach root-flow fields and fails
-# at load with "cannot unmarshal !!str `${FLOW_...` into int". Substitution inside
-# connector/block `settings` — such as the port below — works normally.
+# The knobs are plain integers rather than ${...} placeholders so that the config
+# archived next to each result records the value that actually ran.
 
 service:
   name: perf-template-page

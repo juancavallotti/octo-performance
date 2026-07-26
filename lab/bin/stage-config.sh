@@ -8,16 +8,18 @@
 # TUNED_<UPPERCASE_KNOB> — e.g. TUNED_WORKERS, TUNED_MAXOPENCONNS. Unset knobs
 # keep whatever integration.yaml declares.
 #
-# Three reasons this exists rather than pointing octo at the scenario directly:
+# Two reasons this exists rather than pointing octo at the scenario directly:
 #
 #   1. `octo --config <dir>` loads EVERY config in the directory, so more than one
 #      yaml side by side would all load and collide on the port.
 #   2. Both arms are *derived* from the scenario's single integration.yaml —
 #      baseline by stripping the tuning knobs, tuned by rewriting them. See
 #      lab/bin/render-config.py.
-#   3. DEST is always an absolute path. Octo 0.4.2 fails to resolve template
-#      resources when --config is given a relative directory ("resource id
-#      escapes the resource root"), so the harness never hands it one.
+#
+# DEST is normalised to an absolute path, but only as hygiene: the harness starts
+# the runtime from a working directory the caller chose, and a relative config
+# path would resolve against it. Resource loading itself handles relative config
+# directories correctly.
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 

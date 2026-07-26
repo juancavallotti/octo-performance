@@ -75,40 +75,52 @@ rather than a direction.
 about that description suggests it is also the maximum number of simultaneous
 outbound HTTP calls the flow can have in flight — but for a blocking flow, it is.
 
-## A second finding: outbound connections are not being reused
+## A second finding: outbound connections were not being reused — fixed since 0.4.3
 
 At `workers: 512` the flow reaches 1,779 req/s. With 200 virtual users and a 72.9 ms
 service time, Little's law says the ceiling should be about
 `200 / 0.073 ≈ 2,740 req/s`. The missing 35% is not workers, and it is not CPU.
 
-Counting sockets to the backend during a fixed 2,000-request run:
+Counting sockets to the backend during a fixed 2,000-request run on **0.4.3**:
 
 | Concurrency | New backend TCP connections per proxied request |
 |---|---|
 | 20 VUs | 0.66 |
 | 200 VUs | ~1.0 |
 
-At 200 VUs the runtime opens **roughly one new TCP connection for every request it
-proxies** — 11,531 sockets in `TIME_WAIT` accumulated in six seconds of load. Reuse
-gets worse as concurrency rises, which is the signature of a small fixed idle-
+At 200 VUs the runtime opened **roughly one new TCP connection for every request it
+proxied** — 11,531 sockets in `TIME_WAIT` accumulated in six seconds of load. Reuse
+got worse as concurrency rose, which is the signature of a small fixed idle-
 connection pool: Go's `http.Transport` keeps `MaxIdleConnsPerHost: 2` by default, so
 above two concurrent calls to the same host the surplus connections are closed
 rather than parked.
 
-That diagnosis is an inference from the shape of the data — the runtime's source has
-not been read to confirm it — but the measurement is not in doubt, and the
-`http-client` connector exposes no setting that would change it either way
-(`baseURL`, `timeout`, `headers`, `maxResponseBytes`, `auth`, `retry`).
+**That diagnosis was right, and the runtime has since fixed it.** The `http-client`
+connector now takes a `pool` block — `maxIdleConns`, `maxIdleConnsPerHost`,
+`idleConnTimeout`, `disableKeepAlives` — with `maxIdleConnsPerHost` defaulting to
+**100** rather than Go's 2. Re-probed at 200 VUs against the same backend, 512
+workers, 10 s:
 
-Why it matters beyond this benchmark:
+| Build | New connections per request | `TIME_WAIT` accumulated |
+|---|---|---|
+| 0.4.3 | 0.700 | 17,984 |
+| post-0.4.3 source | **0.029** | **752** |
+
+Both figures above are unreleased-build measurements taken to confirm the fix, not
+published results; the 0.4.3 numbers elsewhere on this page stand as measured.
+
+Why it mattered, and what the fix buys:
 
 - **Ephemeral port exhaustion.** 11.5k sockets in six seconds against a default
-  ephemeral range of roughly 16k–28k ports means a sustained proxy workload runs out
-  of source ports in well under a minute, then fails in a way that looks like the
-  backend is down.
+  ephemeral range of roughly 16k–28k ports meant a sustained proxy workload ran out
+  of source ports in well under a minute, then failed in a way that looked like the
+  backend was down.
 - **TLS.** This backend is plaintext. Against an HTTPS backend, one connection per
   request means one TLS handshake per request — an extra round trip and a
   significant CPU cost per call, neither of which appears here.
+
+`disableKeepAlives: true` reproduces the old behaviour exactly, which makes the
+mechanism testable rather than merely inferred.
 
 ## Running it
 

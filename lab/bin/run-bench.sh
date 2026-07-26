@@ -118,10 +118,11 @@ for variant in $VARIANTS; do
     mkdir -p "$cell"
     step "$variant / $TEST / rep $rep"
 
-    # The knobs are baked into the rendered config, not passed to the runtime:
-    # Octo's ${ENV} substitution does not reach root-flow fields. stage-config.sh
-    # reads TUNED_<KNOB> for each of the scenario's declared TUNABLES; baseline
-    # ignores them and strips instead.
+    # The knobs are baked into the rendered config rather than passed as
+    # environment: the rendered file is archived as this cell's config.yaml, so a
+    # literal value is provenance that survives the run. stage-config.sh reads
+    # TUNED_<KNOB> for each of the scenario's declared TUNABLES; baseline ignores
+    # them and strips instead.
     "$LAB_BIN/stage-config.sh" "$SCENARIO_DIR" "$variant" "$STAGE" >/dev/null
     # Provenance: keep the exact config this cell ran, so a result can always be
     # traced back to the YAML that produced it.
@@ -197,3 +198,7 @@ python3 "$LAB_BIN/index.py" "$REPO_ROOT/results"
 step "done"
 info ""
 info "  $RUN_DIR/REPORT.md"
+
+# A caller orchestrating several runs (run-compare.sh) needs the run directory,
+# and parsing it out of the log would break the first time a message changes.
+[ -n "${RUN_DIR_OUT:-}" ] && printf '%s\n' "$RUN_DIR" > "$RUN_DIR_OUT"

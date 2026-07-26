@@ -27,15 +27,22 @@ start() {
   docker info >/dev/null 2>&1 || die "docker daemon not reachable"
   mkdir -p "$state"
 
-  local image="${OCTO_IMAGE:-juancavallotti/octo-runtime:latest}"
-  docker image inspect "$image" >/dev/null 2>&1 || die "image $image not pulled — run: docker pull $image"
+  # octo_image() honours the BUILD axis: the published image for BUILD=release,
+  # the one built from source for BUILD=dev.
+  local image; image="$(octo_image)"
+  [ -n "$image" ] || die "no image for BUILD=$(build_channel) — run: task build TARGET=docker"
+  docker image inspect "$image" >/dev/null 2>&1 || {
+    [ "$(build_channel)" = "dev" ] \
+      && die "image $image not built — run: task build TARGET=docker" \
+      || die "image $image not pulled — run: docker pull $image"
+  }
 
   # Remove any leftover from an interrupted run.
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
-  # The tuning knobs are baked into the rendered config rather than passed here —
-  # Octo's ${ENV} substitution does not reach root-flow fields. Only LOG_LEVEL is
-  # forwarded, so the container logs at the same verbosity as the native run.
+  # The tuning knobs arrive baked into the rendered config, so the only thing
+  # forwarded here is LOG_LEVEL — the container then logs at the same verbosity as
+  # the native run.
   local env_args=()
   [ -n "${LOG_LEVEL:-}" ] && env_args+=(-e "LOG_LEVEL=$LOG_LEVEL")
 

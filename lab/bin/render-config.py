@@ -28,15 +28,16 @@ not hypothetical: `workers` is documented as defaulting to 8, but declaring
 nothing like 8. A hardcoded baseline would have measured a pathological config and
 labelled it "out of the box".
 
-Tuned rewrites literal integers rather than using Octo's `${ENV}` substitution,
-because substitution does not reach root-flow fields. Verified against 0.4.2/0.4.3:
-`workers: ${FLOW_WORKERS}` fails at load with
+Tuned rewrites the knobs in place rather than driving them through `${ENV}`
+substitution at run time. That used to be forced — substitution did not reach
+root-flow fields — and is now a choice: the rendered file is archived next to the
+result as `config.yaml`, so a knob written there as a literal is provenance. A
+placeholder would record only that a value came from somewhere, and the run's
+environment is not part of the artifact.
 
-    parse config: yaml: unmarshal errors:
-      line 17: cannot unmarshal !!str `${FLOW_...` into int
-
-whether or not the variable is declared, defaulted, or supplied in the OS
-environment. `${...}` inside connector/block `settings` works normally.
+Scenarios may still write `${...}` anywhere, including root-flow fields; the
+matching below accepts any value, so such a knob is stripped for baseline and
+rewritten for tuned exactly like a literal.
 """
 
 import argparse
@@ -45,10 +46,6 @@ import sys
 
 DEFAULT_TUNABLES = ("workers", "buffer", "pool")
 
-# Legacy env-substitution form, stripped if an older scenario still carries it.
-ENV_ENTRY = re.compile(r"^(\s*)-\s*name:\s*FLOW_(?:WORKERS|BUFFER|POOL)\s*$")
-EMPTY_ENV = re.compile(r"^\s*env:\s*$")
-
 
 def knob_re(names):
     """`    maxOpenConns: 25` for any declared tunable, at any indent."""
@@ -56,50 +53,8 @@ def knob_re(names):
     return re.compile(rf"^(?P<indent>\s*)(?P<key>{alt}):\s*(?P<value>\S+)\s*$")
 
 
-def indent_of(line):
-    return len(line) - len(line.lstrip())
-
-
-def drop_env_entries(lines):
-    """Remove FLOW_* env declarations and an `env:` key left with no children."""
-    out, i = [], 0
-    while i < len(lines):
-        line = lines[i]
-        if ENV_ENTRY.match(line):
-            base = indent_of(line)
-            i += 1
-            while i < len(lines):
-                nxt = lines[i]
-                if nxt.strip() and indent_of(nxt) <= base:
-                    break
-                i += 1
-            continue
-        out.append(line)
-        i += 1
-
-    final, i = [], 0
-    while i < len(out):
-        line = out[i]
-        if EMPTY_ENV.match(line):
-            base = indent_of(line)
-            has_child = False
-            for nxt in out[i + 1:]:
-                if not nxt.strip():
-                    continue
-                if indent_of(nxt) <= base:
-                    break
-                has_child = True
-                break
-            if not has_child:
-                i += 1
-                continue
-        final.append(line)
-        i += 1
-    return final
-
-
 def render_baseline(lines, rx):
-    return drop_env_entries([ln for ln in lines if not rx.match(ln)])
+    return [ln for ln in lines if not rx.match(ln)]
 
 
 def render_tuned(lines, rx, values):
@@ -111,7 +66,7 @@ def render_tuned(lines, rx, values):
             out.append(f'{m["indent"]}{m["key"]}: {values[m["key"]]}')
         else:
             out.append(line)
-    return drop_env_entries(out)
+    return out
 
 
 def banner(source, variant, note):
