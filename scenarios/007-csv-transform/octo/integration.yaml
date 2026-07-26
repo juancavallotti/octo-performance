@@ -1,0 +1,139 @@
+# Scenario 007 — CSV transformation. Single source of truth for this integration.
+#
+# CSV -> JSON is the workload COMPARISON.md listed as impossible to build: the
+# runtime ships no CSV parser and, until the cel-go utility libraries were
+# registered, CEL had no `split` either. It now does, so the parse can be written
+# as an expression — which makes this the first scenario in the lab that measures
+# a format decoder written in CEL rather than one compiled into the runtime.
+#
+# TWO flows read the same CSV, because the interesting question is not "can it
+# parse" but "what does the vocabulary cost":
+#
+#   /transform       parse and project. strings + two-var comprehensions only.
+#   /transform-rich  the same records, plus regex extraction, case folding,
+#                    de-duplication, rounding, base64 and set membership.
+#
+# The difference between them is the per-record price of the wider vocabulary.
+# The difference between /transform here and /transform in scenario 006 — same
+# records, same output, JSON in instead of CSV — is the price of decoding a format
+# in CEL instead of in Go.
+#
+# The knobs are plain integers rather than ${...} placeholders so that the config
+# archived next to each result records the value that actually ran. They appear on
+# both measured flows on purpose: the renderer rewrites every occurrence, and both
+# arms of this scenario are meant to be tuned together.
+
+service:
+  name: perf-csv-transform
+  environment: benchmark
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+flows:
+  # ---------------------------------------------------------------- primary ----
+  # Parse, type, project. The output is the same shape scenario 006 produces from
+  # the equivalent JSON document, so the two are readable side by side.
+  - name: transform
+    # Rendered per arm. These values apply only when running the file directly.
+    workers: 8
+    buffer: 64
+    pool: 8
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /transform
+        # CSV is not JSON, so the source must be told not to parse the body. The
+        # request then arrives as {contentType, rawData} and rawData is the text.
+        rawBody: true
+        # Defaults to 1 MiB. The top of the ladder is ~480 KB of CSV, but the
+        # header leaves room for the ladder to grow without silently rejecting.
+        maxBodyBytes: 8388608
+    process:
+      - type: multi-transform
+        name: parse
+        settings:
+          transforms:
+            # The decoder, in one expression: split into lines, drop the header
+            # row by index, split each remaining line into fields. transformList's
+            # four-argument form filters and maps in a single pass, so the line
+            # list is walked once rather than filtered and then mapped.
+            #
+            # This is a naive reader by construction: it does not implement RFC
+            # 4180 quoting, so a field containing a comma or a newline would be
+            # mis-split. The generator emits none. Saying so matters, because the
+            # cost of a conforming reader is not measured here.
+            - setVar: cells
+              value: 'body.rawData.trim().split("\n").transformList(i, line, i > 0, line.split(","))'
+            # Fields arrive as strings — CSV carries no types — so the projection
+            # is also where the document acquires them. double(f[4]) appears three
+            # times rather than once because the extension set deliberately omits
+            # cel.bind, so an expression has nowhere to put an intermediate.
+            - setBody: >-
+                {"accounts": vars.cells.map(f, {
+                   "accountId": f[0],
+                   "name": f[1],
+                   "location": {"region": f[2], "country": f[3]},
+                   "balance": {"amount": double(f[4]), "currency": f[5],
+                               "withTax": double(f[4]) * 1.21},
+                   "active": f[6] == "ACTIVE",
+                   "tier": double(f[4]) > 5000.0 ? "gold"
+                           : (double(f[4]) > 1000.0 ? "silver" : "bronze")}),
+                 "meta": {"count": size(vars.cells), "correlationId": correlationID}}
+
+  # ------------------------------------------------------------- comparison ----
+  # Identical input and identical parse, then every remaining library on top of
+  # it. Kept on its own route so the plain projection above is never charged for
+  # work a plain projection does not do.
+  - name: transform-rich
+    workers: 8
+    buffer: 64
+    pool: 8
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /transform-rich
+        rawBody: true
+        maxBodyBytes: 8388608
+    process:
+      - type: multi-transform
+        name: parse
+        settings:
+          transforms:
+            - setVar: cells
+              value: 'body.rawData.trim().split("\n").transformList(i, line, i > 0, line.split(","))'
+            - setBody: >-
+                {"accounts": vars.cells.map(f, {
+                   "accountId": regex.extract(f[0], "acct-0*(\\d+)").orValue(f[0]),
+                   "name": f[1].lowerAscii(),
+                   "location": {"region": f[2], "country": f[3],
+                                "zone": f[2].split("-").distinct().sort().join(".")},
+                   "balance": {"amount": double(f[4]), "currency": f[5],
+                               "withTax": math.round(double(f[4]) * 1.21 * 100.0) / 100.0},
+                   "active": sets.contains(["ACTIVE"], [f[6]]),
+                   "tier": double(f[4]) > 5000.0 ? "gold"
+                           : (double(f[4]) > 1000.0 ? "silver" : "bronze"),
+                   "idempotencyKey": base64.encode(bytes(f[0] + ":" + f[5])),
+                   "label": "%s (%s) %.2f %s".format([f[1], f[3], double(f[4]), f[5]])}),
+                 "meta": {"count": size(vars.cells), "correlationId": correlationID}}
+
+  # Readiness probe: the measured routes are POSTs that require a body.
+  - name: health
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /health
+    process:
+      - type: set-payload
+        settings:
+          value: '{"status": "ok"}'

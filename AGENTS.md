@@ -148,12 +148,36 @@ session on it.
    or `listeners` where the scenario exposes them), `STEADY_RATE`, durations, and the sweep grid.
    Set `READY_ROUTE` if the measured route is a POST or otherwise cannot answer a bare GET.
    If the scenario needs infrastructure, add executable `setup.sh` / `teardown.sh` beside it;
-   the harness runs them outside the measured window.
+   the harness runs them outside the measured window. If its expressions need CEL functions
+   an older runtime does not have, declare `REQUIRES_CEL` — see below.
 4. `k6/smoke.js`, `k6/steady.js`, `k6/capacity.js` — import from `lab/k6/lib/`. Always read
    `BASE_URL` from the environment; never hardcode a host.
 5. `task verify:render SCENARIO=<id>` to confirm both arms render, and `task diff SCENARIO=<id>`
    to see exactly what separates them.
 6. Run `task smoke` before anything else.
+
+### When a scenario needs a newer runtime
+
+A scenario written against CEL functions an older runtime does not declare fails in the worst
+possible place: the run reaches preflight clean, starts the target, and *then* the flow fails to
+build — a wall of `undeclared reference` inside `octo.log`, after the scenario's dependencies are
+already up. `REQUIRES_CEL` in `scenario.env` moves that to the top of the run:
+
+```bash
+REQUIRES_CEL='"a,b".split(",").size() == 2 && ["b","a"].sort() == ["a","b"]'
+```
+
+One expression, covering everything the flows draw on. It must **compile and return true**, so a
+function that is present but behaves differently fails the gate as loudly as one that is absent.
+
+The harness asks the artifact under test with `octo eval` — the binary for `TARGET=native`, the
+image for `TARGET=docker` — rather than comparing version strings, because a version string
+cannot answer the question: a build from a source checkout reports the same constant as the
+release it branched from, feature or no feature. Preflight then names the functions the build
+lacks and points at `BUILD=dev`.
+
+This is the mechanism for measuring a capability before it ships. Note the corollary from the
+BUILD axis above: until it does ship, what comes out is a dev result, not a published one.
 
 ## Findings workflow
 

@@ -63,6 +63,28 @@ case "$TARGET" in
   *) die "unknown TARGET '$TARGET' (expected native or docker)" ;;
 esac
 
+# --- what the scenario needs from the runtime ---------------------------------
+# A scenario may declare REQUIRES_CEL: an expression the runtime under test has to
+# be able to evaluate. Asked here rather than discovered at flow-build time, so
+# "this build is too old for this scenario" is one line at the top instead of a
+# compile error buried in octo.log once the dependencies are already up.
+#
+# Skipped when something above is already missing — there is no artifact to ask.
+if [ -n "${SCENARIO:-}" ] && [ "$missing" -eq 0 ]; then
+  probe="$(scenario_cel_probe "$SCENARIO")"
+  if [ -n "$probe" ]; then
+    reason="$(cel_missing "$probe" "$TARGET")"
+    if [ -z "$reason" ]; then
+      ok "cel" "$SCENARIO's expressions compile against this build"
+    else
+      absent "cel" "$SCENARIO needs CEL support this build lacks — $reason"
+      dim "    the probe is REQUIRES_CEL in scenarios/$SCENARIO/scenario.env"
+      [ "$(build_channel)" = "release" ] && \
+        dim "    if the support is unreleased, measure the source build: BUILD=dev"
+    fi
+  fi
+fi
+
 # --- what is actually under test ----------------------------------------------
 # Printed for every run, because "which build produced this number" is the one
 # question a benchmark result has to be able to answer.

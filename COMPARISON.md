@@ -123,7 +123,6 @@ integration workloads that cannot currently be expressed:
 
 | Workload | Blocker |
 |---|---|
-| CSV → JSON transformation | No CSV parser. `parseCSV`, `split` are `undeclared reference`; no block provides one. |
 | XML → JSON transformation | No XML parser. XML remains the lingua franca of enterprise integration. |
 | API gateway policies | No policy engine — no rate limiting, quotas, or client-identity enforcement. `jwt-validate` is the only comparable primitive. |
 | Record-oriented batch | No batch component: no job/step model, no chunked commit, no per-record error isolation, no restart. Compounded by the quadratic `foreach`. |
@@ -132,6 +131,18 @@ integration workloads that cannot currently be expressed:
 | Distributed transactions | No XA, and no documented transaction boundary for a multi-step flow. |
 
 That list says more about where Octo currently sits than any throughput number.
+
+**One row has left it.** CSV → JSON was on this list because CEL had no `split` and
+no block provided a parser. The runtime still ships no CSV parser, but the cel-go
+utility libraries — strings, lists, encoders, math, two-variable comprehensions,
+sets, regex — are now registered on every expression, so the parse can be written
+as one. [Scenario 007](scenarios/007-csv-transform/) does exactly that, with the
+caveat a naive reader carries: it does not implement RFC 4180 quoting, so it is the
+cheap case rather than the general one. The support is unreleased at the time of
+writing, and the row comes back if it does not ship.
+
+XML has no equivalent route. The libraries add no parser for it and none of them
+compose into one, so that row stands.
 
 ## Rules for adding to this document
 

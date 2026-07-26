@@ -82,6 +82,7 @@ badly wrong for anything that waits on I/O.
 | [004-queue-roundtrip](scenarios/004-queue-roundtrip/) | Two flows joined by an internal queue with `awaitReply`. The only scenario with a knob on **both** sides: producer `workers` against consumer `listeners`. |
 | [005-http-proxy](scenarios/005-http-proxy/) | Pass a request to a backend that takes 70 ms — the canonical API-gateway shape. Out of the box this caps at **108 req/s**; tuned it reaches 1,780. |
 | [006-json-transform](scenarios/006-json-transform/) | Reshape a JSON collection, two ways. Shows `foreach mode: map` is **quadratic** in record count. |
+| [007-csv-transform](scenarios/007-csv-transform/) | The same records as 006, arriving as CSV. The first workload whose **format decoder is written in CEL** rather than compiled into the runtime. |
 
 More scenarios — other connectors, database-backed flows, outbound REST calls, forked composites —
 get added over time. See [AGENTS.md](AGENTS.md) for the checklist.

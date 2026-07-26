@@ -26,7 +26,11 @@ DRIVER="$LAB_BIN/target-$TARGET.sh"
 [ -x "$DRIVER" ] || die "no driver for target '$TARGET'"
 
 # ---------------------------------------------------------------- preflight ---
-TARGET="$TARGET" HOST="${HOST:-local}" "$LAB_BIN/preflight.sh"
+# The dev artifact is built here, in the entry point, and exported so every child
+# in the run resolves the same one. Left to the children, footprint.sh would kick
+# off its own compile from inside the run — see ensure_octo_build in common.sh.
+ensure_octo_build "$TARGET"
+TARGET="$TARGET" HOST="${HOST:-local}" SCENARIO="$SCENARIO" "$LAB_BIN/preflight.sh"
 
 step "guard: both variants render from the scenario's single integration.yaml"
 for v in $VARIANTS; do

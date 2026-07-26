@@ -18,7 +18,11 @@ load_scenario "$SCENARIO"
 DRIVER="$LAB_BIN/target-$TARGET.sh"
 [ -x "$DRIVER" ] || die "no driver for target '$TARGET'"
 
-TARGET="$TARGET" HOST="${HOST:-local}" "$LAB_BIN/preflight.sh"
+# The dev artifact is built here, in the entry point, and exported so every child
+# in the run resolves the same one. Left to the children, footprint.sh would kick
+# off its own compile from inside the run — see ensure_octo_build in common.sh.
+ensure_octo_build "$TARGET"
+TARGET="$TARGET" HOST="${HOST:-local}" SCENARIO="$SCENARIO" "$LAB_BIN/preflight.sh"
 
 step "guard: the $VARIANT variant renders from integration.yaml"
 python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" "$VARIANT" \

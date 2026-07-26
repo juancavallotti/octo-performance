@@ -65,7 +65,12 @@ function collectThresholds(metrics) {
 
 /**
  * @param {object} data      k6 summary data
- * @param {object} extra     { test, offeredRate, loadModel, vus }
+ * @param {object} extra     { test, offeredRate, loadModel, vus, payload }
+ *
+ * `payload` is the scenario's own description of what it sent — `{records: 753}`,
+ * `{bytes: 1024}`. It is free-form because the dimension a payload ladder is sized
+ * on differs by scenario, and a result whose rung cannot be identified afterwards
+ * is not on a ladder at all.
  *
  * `loadModel` is recorded rather than inferred because it is the one property that
  * makes two throughput numbers incomparable no matter how alike they look. An open
@@ -82,6 +87,7 @@ export function buildSummary(data, extra = {}) {
     loadModel: extra.loadModel || 'open',
     vus: extra.vus !== undefined ? extra.vus : null,
     offeredRate: extra.offeredRate !== undefined ? extra.offeredRate : null,
+    payload: extra.payload !== undefined ? extra.payload : null,
     durationSeconds: durationMs / 1000,
     metrics: {
       http_reqs: counter(m.http_reqs),

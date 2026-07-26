@@ -6,19 +6,25 @@ target format, and the result is returned.
 
 ## What could and could not be built
 
-The three transformations that matter in practice are JSON, CSV and XML. Only one has an
-Octo equivalent:
+The three transformations that matter in practice are JSON, CSV and XML. On 0.4.3
+only one had an Octo equivalent:
 
 | Transformation | Built here? | Why |
 |---|---|---|
 | JSON → JSON | **yes** | JSON in, reshaped JSON out |
-| CSV → JSON | no | CEL has no CSV parser and no block provides one |
+| CSV → JSON | not on 0.4.3 | no CSV parser, and CEL had no `split` to write one with |
 | XML → JSON | no | CEL has no XML parser and no block provides one |
 
-Probed directly against 0.4.3: `parseCSV`, `parseXML`, `xmlToJson`, `fromJSON`,
+Probed directly against 0.4.3: `parseCSV`, `parseXML`, `xmlToJson`, `fromJSON` and
 `split` are all `undeclared reference`. This is recorded as a capability gap rather
 than worked around — a benchmark that quietly substituted a different workload would
 be worse than an absent one.
+
+**`split` has since arrived**, along with the rest of the cel-go utility libraries,
+which is enough to write a CSV reader as an expression. That workload moved out to
+[scenario 007](../007-csv-transform/), which sends these same records as CSV so the
+two can be read against each other. The parsers named above are still absent, and
+XML is still unreachable.
 
 ## The integration
 

@@ -29,6 +29,7 @@ throughput **cost** in CPU and memory.
 | 004 | [queue-roundtrip](scenarios/004-queue-roundtrip/) | Two flows joined by an internal queue with `awaitReply` |
 | 005 | [http-proxy](scenarios/005-http-proxy/) | Pass a request to a backend that takes 70 ms — the canonical API-gateway shape. |
 | 006 | [json-transform](scenarios/006-json-transform/) | Reshape a JSON collection two ways. Payload transformation, the workload every runtime is measured on. |
+| 007 | [csv-transform](scenarios/007-csv-transform/) | The same records as 006, arriving as CSV. A format decoder written in CEL rather than compiled in. |
 
 ## The finding that runs through all of them
 

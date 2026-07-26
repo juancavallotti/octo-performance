@@ -4,9 +4,10 @@
 # HTTP listener receives a payload in the source format, the runtime transforms it
 # into the target format, and the result is returned.
 #
-# The three formats that matter in practice are JSON, CSV and XML. Only JSON has an
-# Octo equivalent: CEL has no CSV or XML parser and the runtime ships no block
-# providing one, so two of the three cannot be built. See COMPARISON.md.
+# The three formats that matter in practice are JSON, CSV and XML. The runtime ships
+# no parser block for any of them; JSON needs none because the HTTP source decodes
+# it. CSV is now reachable through CEL's split — scenario 007 does it — and XML is
+# still not reachable at all. See COMPARISON.md.
 #
 # TWO flows do the same transformation by different means, because the difference
 # between them turned out to be the largest single finding in this lab:

@@ -127,12 +127,24 @@ build_channel() { printf '%s\n' "${BUILD:-release}"; }
 #
 # Exported so child scripts within the same run resolve the artifact without each
 # one shelling out to the builder. A no-op for BUILD=release.
+#
+# The early return matters more than it looks. A dirty tree is rebuilt
+# unconditionally, and preflight runs as a child process, so its export never
+# reached back here: every script in the run that called this started its own
+# `go build`, footprint.sh from *inside* the run. Two things follow, and both are
+# what this function's docstring already claimed it prevented. A full compile lands
+# a minute before a measured window opens, on the same cores. And a tree edited
+# between repetitions — the normal state of a branch under development — could swap
+# the artifact halfway through a measurement.
 ensure_octo_build() {
   [ "$(build_channel)" = "dev" ] || return 0
   local t="${1:-${TARGET:-native}}"
+  if [ -n "${OCTO_DEV_ARTIFACT:-}" ] && [ "${OCTO_DEV_TARGET:-}" = "$t" ]; then
+    return 0
+  fi
   local ref
   ref="$("$LAB_BIN/build-octo.sh" "$t")" || die "dev build failed"
-  export OCTO_DEV_ARTIFACT="$ref"
+  export OCTO_DEV_ARTIFACT="$ref" OCTO_DEV_TARGET="$t"
 }
 
 # The dev artifact for a target.
@@ -141,8 +153,11 @@ ensure_octo_build() {
 # artifact is frozen for the whole run: a source tree edited between repetitions
 # cannot silently swap the binary halfway through a measurement.
 dev_artifact() {
-  [ -n "${OCTO_DEV_ARTIFACT:-}" ] && { printf '%s\n' "$OCTO_DEV_ARTIFACT"; return 0; }
   local t="${1:-${TARGET:-native}}" ref
+  if [ -n "${OCTO_DEV_ARTIFACT:-}" ] && [ "${OCTO_DEV_TARGET:-$t}" = "$t" ]; then
+    printf '%s\n' "$OCTO_DEV_ARTIFACT"
+    return 0
+  fi
   if ref="$("$LAB_BIN/build-octo.sh" "$t" --resolve 2>/dev/null)"; then
     printf '%s\n' "$ref"
     return 0
@@ -239,6 +254,90 @@ version_under_test() {
     docker) docker_image_version "$(octo_image)" ;;
     *) echo "unknown" ;;
   esac
+}
+
+# ------------------------------------------------------ runtime capability ----
+#
+# A scenario can be written against CEL functions that only some runtimes declare.
+# Left unchecked, such a run gets as far as starting the target, and the flow then
+# fails to build — surfacing as a wall of `undeclared reference` inside octo.log,
+# after the harness has already staged configs and started the scenario's
+# dependencies.
+#
+# The version string cannot answer the question. A build from a source checkout
+# reports the same constant as the release it branched from, so "0.4.3" is true of
+# both a runtime that has a function and one that does not. The artifact itself is
+# asked instead.
+
+# octo_eval <expr> [target] — evaluate a CEL expression against the runtime under
+# test and print octo's JSON envelope: {"ok":bool,"result":...,"error":...}.
+#
+# Note that octo exits 0 for an expression that failed to compile — the envelope,
+# not the exit status, carries the answer.
+octo_eval() {
+  local expr="$1" t="${2:-${TARGET:-native}}"
+  case "$t" in
+    native)
+      local bin; bin="$(octo_bin)"
+      [ -n "$bin" ] && [ -x "$bin" ] || return 1
+      "$bin" eval --expr "$expr" 2>/dev/null
+      ;;
+    docker)
+      local image; image="$(octo_image)"
+      [ -n "$image" ] || return 1
+      docker run --rm --entrypoint /usr/local/bin/octo "$image" eval --expr "$expr" 2>/dev/null
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# scenario_cel_probe <scenario-id> — the scenario's REQUIRES_CEL, if it declares
+# one. Sourced in a subshell: a capability check has no business pulling the
+# scenario's whole environment into a caller that only wants one key.
+scenario_cel_probe() {
+  [ -n "${REQUIRES_CEL:-}" ] && { printf '%s' "$REQUIRES_CEL"; return 0; }
+  local f="$REPO_ROOT/scenarios/${1:?scenario id required}/scenario.env"
+  [ -f "$f" ] || return 0
+  ( set -a; . "$f"; set +a; printf '%s' "${REQUIRES_CEL:-}" )
+}
+
+# cel_missing <expr> [target] — prints nothing when the runtime evaluates the probe
+# to true, and a one-line reason otherwise. Always exits 0: the reason is the
+# result, and callers decide how loud to be about it.
+cel_missing() {
+  local expr="$1" t="${2:-${TARGET:-native}}" out
+  out="$(octo_eval "$expr" "$t" || true)"
+  [ -n "$out" ] || { printf 'the runtime under test could not be asked — octo eval produced no answer'; return 0; }
+  python3 - "$out" "$expr" <<'PY'
+import json, re, sys
+
+raw, expr = sys.argv[1], sys.argv[2]
+try:
+    answer = json.loads(raw)
+except ValueError:
+    print("unreadable answer from octo eval: " + raw[:160])
+    raise SystemExit
+
+if answer.get("ok") and answer.get("result") is True:
+    raise SystemExit
+
+err = answer.get("error") or ""
+names = sorted(set(re.findall(r"undeclared reference to '([^']+)'", err)))
+# A comprehension's own iteration variables are reported undeclared too, because
+# the macro that would bind them is the thing that is missing. Keep only the names
+# the probe actually calls, or the list reads as nonsense. The left boundary has to
+# admit a leading dot (`regex.extract` is reported as `extract`) while refusing a
+# letter, or the single-character variable `i` matches inside `lowerAscii(`.
+names = [n for n in names
+         if re.search(r"(?<![A-Za-z0-9_])" + re.escape(n) + r"\s*\(", expr)]
+
+if names:
+    print("this build does not declare " + ", ".join(names))
+elif not answer.get("ok"):
+    print((err.splitlines() or ["octo eval reported a failure"])[0])
+else:
+    print("the probe compiled but evaluated to %r rather than true" % (answer.get("result"),))
+PY
 }
 
 # ------------------------------------------------------------------ misc -----

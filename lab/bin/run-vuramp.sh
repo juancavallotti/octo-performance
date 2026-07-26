@@ -37,7 +37,11 @@ DRIVER="$LAB_BIN/target-$TARGET.sh"
 [ -x "$DRIVER" ] || die "no driver for target '$TARGET'"
 [ -f "$SCENARIO_DIR/k6/vus.js" ] || die "scenario $SCENARIO_ID has no k6/vus.js — the closed-model test is opt-in per scenario"
 
-TARGET="$TARGET" HOST="${HOST:-local}" "$LAB_BIN/preflight.sh"
+# The dev artifact is built here, in the entry point, and exported so every child
+# in the run resolves the same one. Left to the children, footprint.sh would kick
+# off its own compile from inside the run — see ensure_octo_build in common.sh.
+ensure_octo_build "$TARGET"
+TARGET="$TARGET" HOST="${HOST:-local}" SCENARIO="$SCENARIO" "$LAB_BIN/preflight.sh"
 
 scenario_setup
 trap 'scenario_teardown' EXIT
