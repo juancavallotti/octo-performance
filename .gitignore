@@ -8,6 +8,12 @@
 .scratch/
 tmp/
 
+# Per-block profiles from `task profile`. Deliberately not published: a profiled run
+# carries instrumentation around every block, so its numbers describe the harness as
+# much as the runtime. It is a tool for forming a hypothesis, and the hypothesis —
+# once re-measured through `task bench` — is what gets committed.
+diagnostics/
+
 # k6 raw per-request output (huge); we keep handleSummary JSON instead
 *.k6-raw.json
 

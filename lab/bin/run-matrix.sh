@@ -13,8 +13,14 @@
 #   TARGETS="native docker"   which targets to sweep (default both)
 #   REPS=3                    repetitions per arm
 #
+#   MATRIX_LOG=<path>         where progress is written (default results/matrix-<date>.log)
+#
 # Progress is appended to results/matrix-<date>.log; a failure in one combination
 # does not stop the others, and the summary at the end says which ones failed.
+#
+# Two matrices run on the same day — which is what benchmarking a release against
+# its predecessor looks like — would otherwise append into one file and leave
+# neither readable. MATRIX_LOG names the second one.
 
 set -uo pipefail
 
@@ -27,10 +33,11 @@ REPS="${REPS:-3}"
 SCENARIOS=("$@")
 if [ ${#SCENARIOS[@]} -eq 0 ]; then
   SCENARIOS=(001-template-page 002-fanout-transform 003-postgres-crud \
-             004-queue-roundtrip 005-http-proxy 006-json-transform)
+             004-queue-roundtrip 005-http-proxy 006-json-transform \
+             007-csv-transform)
 fi
 
-LOG="$REPO_ROOT/results/matrix-$(date +%Y-%m-%d).log"
+LOG="${MATRIX_LOG:-$REPO_ROOT/results/matrix-$(date +%Y-%m-%d).log}"
 mkdir -p "$REPO_ROOT/results"
 
 # Tuned arm per scenario. Empty means "the scenario's own defaults are already the
@@ -45,6 +52,10 @@ tuned_env() {
     # between working and not: 8 workers against a 70 ms backend caps at 108 req/s.
     005-http-proxy)       echo "TUNED_WORKERS=512 TUNED_BUFFER=1024 TUNED_POOL=8" ;;
     006-json-transform)   echo "TUNED_WORKERS=32 TUNED_BUFFER=256 TUNED_POOL=8" ;;
+    # Same values as 006 rather than a sweep of its own: 007 sends the same records
+    # through the same non-blocking shape, and the point of the pair is 006 against
+    # 007. Different tuned arms would put a second variable in that comparison.
+    007-csv-transform)    echo "TUNED_WORKERS=32 TUNED_BUFFER=256 TUNED_POOL=8" ;;
     *)                    echo "" ;;
   esac
 }

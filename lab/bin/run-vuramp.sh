@@ -41,7 +41,14 @@ DRIVER="$LAB_BIN/target-$TARGET.sh"
 # in the run resolves the same one. Left to the children, footprint.sh would kick
 # off its own compile from inside the run — see ensure_octo_build in common.sh.
 ensure_octo_build "$TARGET"
+octo_has_admin_port "$TARGET" || true
 TARGET="$TARGET" HOST="${HOST:-local}" SCENARIO="$SCENARIO" "$LAB_BIN/preflight.sh"
+
+# The closed-model sweep is where in-flight matters most: it is the signal that
+# says whether a VU level is queueing behind busy workers or genuinely idle, which
+# is the whole question a knee point is trying to answer.
+METRICS_SCRAPE_URL="$(metrics_url "$TARGET")"
+export METRICS_SCRAPE_URL
 
 scenario_setup
 trap 'scenario_teardown' EXIT
@@ -93,7 +100,7 @@ for vus in $VU_LEVELS; do
   trap cell_cleanup EXIT
 
   ID="$("$DRIVER" start "$STAGE" "$cell")"
-  if ! wait_ready "$(ready_url)" 60 >/dev/null; then
+  if ! readiness_probe 60 >/dev/null; then
     cat "$cell/octo.log" >&2 2>/dev/null || true
     die "target never became ready"
   fi

@@ -34,8 +34,23 @@ load_host() {
   : "${HOST_PROFILE:?host profile must define HOST_PROFILE}"
   : "${BASE_URL:?host profile must define BASE_URL}"
   : "${HTTP_PORT:=8080}"
-  export HOST_PROFILE BASE_URL HTTP_PORT
+  # The runtime's admin port, where probes and metrics live. It is deliberately
+  # not derived from BASE_URL's port: the two are different listeners and a host
+  # profile that splits load generator from server will move one without the other.
+  : "${ADMIN_PORT:=39999}"
+  : "${ADMIN_BASE_URL:=$(url_with_port "$BASE_URL" "$ADMIN_PORT")}"
+  export HOST_PROFILE BASE_URL HTTP_PORT ADMIN_PORT ADMIN_BASE_URL
 }
+
+# url_with_port <url> <port> — the same scheme and host, on another port.
+url_with_port() {
+  python3 -c 'import sys,urllib.parse as u
+p = u.urlsplit(sys.argv[1])
+print("%s://%s:%s" % (p.scheme or "http", p.hostname or "localhost", sys.argv[2]))' "$1" "$2"
+}
+
+# admin_url [path] — a URL on the runtime's admin port.
+admin_url() { printf '%s%s\n' "${ADMIN_BASE_URL:?load_host first}" "${1:-/}"; }
 
 # load_scenario <scenario-id>  — source scenarios/<id>/scenario.env and export paths.
 #
@@ -71,15 +86,16 @@ load_scenario() {
   [ -n "$overridden" ] && dim "  scenario overrides:${overridden}"
 
   : "${ROUTE:?scenario.env must define ROUTE}"
-  # Readiness is probed with a bare GET. A scenario whose ROUTE needs a request
-  # body (or a method other than GET) declares READY_ROUTE pointing at a trivial
-  # health flow instead — the runtime has no built-in health endpoint, so each
-  # scenario that needs one provides it.
+  # READY_ROUTE is the pre-observability fallback, kept only for runtimes with no
+  # admin port. A build that has one is asked /readyz instead, which is a better
+  # answer for three reasons: it does not run flow logic, it reports *why* it is
+  # not ready, and it works for a scenario with no HTTP source at all. See
+  # readiness_probe below.
   : "${READY_ROUTE:=$ROUTE}"
   export SCENARIO_ID SCENARIO_DIR ROUTE READY_ROUTE
 }
 
-# The URL the harness polls to decide the target is up.
+# The business route the harness falls back to when there is no admin port.
 ready_url() { printf '%s%s\n' "$BASE_URL" "${READY_ROUTE:-$ROUTE}"; }
 
 # Scenario dependency lifecycle. A scenario that needs external infrastructure —
@@ -338,6 +354,112 @@ elif not answer.get("ok"):
 else:
     print("the probe compiled but evaluated to %r rather than true" % (answer.get("result"),))
 PY
+}
+
+# --------------------------------------------------- observability capability ---
+#
+# The runtime grew an admin port — liveness and readiness probes, and Prometheus
+# metrics behind --metrics — which replaces most of what this lab used to infer
+# from outside the process. It is not in every build the lab benchmarks: comparing
+# 0.4.2 against 0.4.3 is the regression workflow this repo exists for, and neither
+# has it. So every use of it is conditional, and the artifact is asked rather than
+# its version string — the same reasoning as the CEL probe above, and for the same
+# reason: a source build reports the version constant of the release it branched
+# from, feature or no feature.
+#
+# The question is asked of `octo run --help`, which is the artifact's own statement
+# of which flags it accepts. That matters beyond tidiness: passing --metrics to a
+# build that does not know it is a hard flag-parse failure at start-up.
+
+# octo_has_admin_port [target] — true when the runtime under test serves probes.
+#
+# Cached in the environment for the life of the run: for TARGET=docker the answer
+# costs a container start, and it is asked at readiness for every cell.
+octo_has_admin_port() {
+  local t="${1:-${TARGET:-native}}"
+  # Assigned separately: within one `local`, $t is not yet bound.
+  local cache_var="OCTO_ADMIN_CAP_${t}"
+  if [ -n "${!cache_var+set}" ]; then
+    [ "${!cache_var}" = "yes" ]
+    return
+  fi
+  local help="" answer="no"
+  case "$t" in
+    native)
+      local bin; bin="$(octo_bin)"
+      [ -n "$bin" ] && [ -x "$bin" ] && help="$("$bin" run --help 2>&1 || true)"
+      ;;
+    docker)
+      local image; image="$(octo_image)"
+      [ -n "$image" ] && help="$(docker run --rm --entrypoint /usr/local/bin/octo \
+        "$image" run --help 2>&1 || true)"
+      ;;
+  esac
+  printf '%s' "$help" | grep -q -- '--observability' && answer="yes"
+  eval "export ${cache_var}=\$answer"
+  [ "$answer" = "yes" ]
+}
+
+# metrics_wanted — whether this run asks the runtime to serve /metrics.
+#
+# Defaults on: server-side telemetry is the point of wiring this up at all, and the
+# measured cost of carrying it is recorded in METHODOLOGY.md. Set METRICS=0 to
+# measure without it — which is how that cost was established.
+metrics_wanted() {
+  case "${METRICS:-1}" in 0|no|false|off) return 1 ;; esac
+  octo_has_admin_port "${1:-${TARGET:-native}}"
+}
+
+# metrics_blocks_wanted — whether per-block telemetry was asked for.
+#
+# Never on by default. Watching any block makes the engine emit an event around
+# every block in every flow, so this changes what is being measured; `task profile`
+# is the entry point that wants it, and it stamps the run accordingly.
+metrics_blocks_wanted() {
+  [ -n "${METRICS_BLOCKS:-}" ] && metrics_wanted "${1:-${TARGET:-native}}"
+}
+
+# metrics_url — the scrape URL, or nothing when this run has no metrics.
+#
+# METRICS_SCRAPE=0 leaves the runtime serving /metrics but stops the harness
+# collecting it. That separates two costs the lab would otherwise report as one: the
+# instrumentation the runtime carries on its flow goroutines, and the scrape, which
+# renders the whole registry on the observed process and runs a Python process
+# beside it on the same laptop. Attributing a stall to the wrong one of those would
+# send a fix to the wrong repository.
+metrics_url() {
+  case "${METRICS_SCRAPE:-1}" in 0|no|false|off) return 0 ;; esac
+  metrics_wanted "${1:-${TARGET:-native}}" || return 0
+  admin_url /metrics
+}
+
+# ------------------------------------------------------------------ readiness ---
+
+# readiness_method [target] — "admin" or "route", for the record and for messages.
+readiness_method() {
+  if octo_has_admin_port "${1:-${TARGET:-native}}"; then echo admin; else echo route; fi
+}
+
+# readiness_probe <timeout-seconds> — wait until the target is serving; echo elapsed ms.
+#
+# Prefers /readyz, which answers "ready" only once every connector and flow
+# started — for an http-backed flow, including its listener being bound. Polling a
+# business route could only ever approximate that, and approximated it in a way
+# that cost each scenario a throwaway health flow.
+#
+# On timeout the state the runtime last reported is printed, because "starting" and
+# "reloading" and a refused connection are three different problems and the old
+# fallback could not tell them apart.
+readiness_probe() {
+  local timeout="${1:-60}"
+  if octo_has_admin_port; then
+    wait_ready "$(admin_url /readyz)" "$timeout" && return 0
+    local last
+    last="$(curl -s --max-time 2 "$(admin_url /readyz)" 2>/dev/null | head -1 || true)"
+    warn "readiness timed out after ${timeout}s; /readyz last said: ${last:-unreachable}"
+    return 1
+  fi
+  wait_ready "$(ready_url)" "$timeout"
 }
 
 # ------------------------------------------------------------------ misc -----

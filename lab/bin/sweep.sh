@@ -31,7 +31,15 @@ DRIVER="$LAB_BIN/target-$TARGET.sh"
 # in the run resolves the same one. Left to the children, footprint.sh would kick
 # off its own compile from inside the run — see ensure_octo_build in common.sh.
 ensure_octo_build "$TARGET"
+octo_has_admin_port "$TARGET" || true
 TARGET="$TARGET" HOST="${HOST:-local}" SCENARIO="$SCENARIO" "$LAB_BIN/preflight.sh"
+
+# In-flight against the combination's own worker count is what separates "this grid
+# point is worker-bound" from "this grid point is slow" — the distinction the sweep
+# exists to draw.
+METRICS_SCRAPE_URL="$(metrics_url "$TARGET")"
+export METRICS_SCRAPE_URL
+
 python3 "$LAB_BIN/render-config.py" "$SCENARIO_DIR/octo/integration.yaml" tuned \
   --tunables "${TUNABLES:-workers buffer pool}" >/dev/null \
   || die "cannot render the tuned variant — the scenario's root flow declares no tuning knobs"
@@ -84,7 +92,7 @@ for w in $WORKERS_LIST; do
     trap cell_cleanup EXIT
 
     ID="$("$DRIVER" start "$STAGE" "$cell")"
-    if ! wait_ready "$(ready_url)" 60 >/dev/null; then
+    if ! readiness_probe 60 >/dev/null; then
       warn "combination did not start; skipping"
       cat "$cell/octo.log" >&2 2>/dev/null || true
       "$DRIVER" stop "$cell" 2>/dev/null || true

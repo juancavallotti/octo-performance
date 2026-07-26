@@ -122,6 +122,29 @@ tasks:
       - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} BUILD={{.BUILD}}
         ./lab/bin/sweep.sh
 
+  profile:
+    desc: 'Diagnostic: rank the blocks inside a flow by the time they hold (not a result)'
+    cmds:
+      # Needs a runtime with an admin port, so BUILD=dev by default until one ships.
+      # Writes to diagnostics/, never to results/: watching any block makes the engine
+      # emit an event around every block, so a profiled run is not the same workload.
+      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}}
+        BUILD={{.BUILD | default "dev"}}
+        VARIANT={{.VARIANT | default "tuned"}}
+        BLOCKS='{{.BLOCKS | default "*"}}'
+        PROFILE_RATE={{.PROFILE_RATE | default ""}}
+        PROFILE_DURATION={{.PROFILE_DURATION | default ""}}
+        TUNED_WORKERS={{.TUNED_WORKERS | default ""}}
+        TUNED_BUFFER={{.TUNED_BUFFER | default ""}}
+        TUNED_POOL={{.TUNED_POOL | default ""}}
+        ./lab/bin/run-profile.sh
+
+  probes:
+    desc: 'Start a scenario and print what its admin port reports — probes, metrics, identity'
+    cmds:
+      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}}
+        BUILD={{.BUILD | default "dev"}} ./lab/bin/probes.sh
+
   footprint:
     desc: 'Measure only the runtime footprint: artifact size, cold start, idle RSS, idle CPU'
     cmds:

@@ -30,6 +30,9 @@ DRIVER="$LAB_BIN/target-$TARGET.sh"
 # in the run resolves the same one. Left to the children, footprint.sh would kick
 # off its own compile from inside the run — see ensure_octo_build in common.sh.
 ensure_octo_build "$TARGET"
+# Asked once, here, and exported: for TARGET=docker the answer costs a container
+# start, and every child in the run needs it. Same reasoning as the dev build above.
+octo_has_admin_port "$TARGET" || true
 TARGET="$TARGET" HOST="${HOST:-local}" SCENARIO="$SCENARIO" "$LAB_BIN/preflight.sh"
 
 step "guard: both variants render from the scenario's single integration.yaml"
@@ -53,6 +56,12 @@ RUN_ID="$(today)-${HOST_PROFILE}-${SCENARIO_ID}-${TARGET}-v${VERSION}"
 # id, a 1-CPU run and an unconstrained one collide and the second is filed as a
 # repeat of the first.
 [ -n "${CPU_LIMIT:-}" ] && RUN_ID="${RUN_ID}-${CPU_LIMIT}cpu"
+# Per-block telemetry makes the engine emit an event around every block in every
+# flow, so a run carrying it is not measuring the same thing as one that is not. In
+# the id, or the regression view files it as a repeat of a run it cannot be compared
+# with. Per-flow metrics are not stamped: their cost was measured and stated in
+# METHODOLOGY.md, and they are on for every run.
+metrics_blocks_wanted "$TARGET" && RUN_ID="${RUN_ID}-blockmetrics"
 [ -n "${RUN_LABEL:-}" ] && RUN_ID="${RUN_ID}-${RUN_LABEL}"
 
 RUN_DIR="$REPO_ROOT/results/$RUN_ID"
@@ -66,6 +75,12 @@ mkdir -p "$RUN_DIR"
 
 step "run $RUN_ID"
 dim "  scenario=$SCENARIO_ID target=$TARGET version=$VERSION reps=$REPS test=$TEST"
+dim "  readiness=$(readiness_method "$TARGET") metrics=$(metrics_wanted "$TARGET" && echo on || echo off)${METRICS_BLOCKS:+ blocks=$METRICS_BLOCKS}"
+
+# The scrape URL for this run, or empty. Exported once so the sampler does not have
+# to re-derive a decision that depends on the build under test.
+METRICS_SCRAPE_URL="$(metrics_url "$TARGET")"
+export METRICS_SCRAPE_URL
 
 # ------------------------------------------------------------------ context ---
 SCENARIO_ID="$SCENARIO_ID" TARGET="$TARGET" "$LAB_BIN/capture-env.sh" "$RUN_DIR/env.json"
@@ -98,10 +113,24 @@ mkdir -p "$SMOKE_STATE"
 smoke_cleanup() { "$DRIVER" stop "$SMOKE_STATE" 2>/dev/null || true; }
 trap smoke_cleanup EXIT
 "$DRIVER" start "$STAGE" "$SMOKE_STATE" >/dev/null
-wait_ready "$(ready_url)" 60 >/dev/null || {
+readiness_probe 60 >/dev/null || {
   cat "$SMOKE_STATE/octo.log" >&2 2>/dev/null || true
   die "target never became ready"
 }
+
+# Ask the running process what it is, while one happens to be up.
+#
+# Rule 1 is "no version, no result", and until now it was satisfied by asking the
+# artifact before starting it — which answers "what did we intend to run". The
+# process's own octo_build_info answers "what is running", including which services
+# provider was compiled in. Those differ exactly when something is wrong, which is
+# when a provenance record earns its keep.
+if [ -n "$METRICS_SCRAPE_URL" ]; then
+  curl -s --max-time 5 "$METRICS_SCRAPE_URL" 2>/dev/null \
+    | python3 "$LAB_BIN/metrics-identity.py" > "$RUN_DIR/runtime-identity.json" \
+    || rm -f "$RUN_DIR/runtime-identity.json"
+fi
+
 if run_k6 "$SCENARIO_DIR/k6/smoke.js" "$SMOKE_STATE/summary.json" "$SMOKE_STATE/k6.log"; then
   dim "  smoke passed"
 else
@@ -154,7 +183,7 @@ PY
 
     start_ms="$(epoch_ms)"
     ID="$("$DRIVER" start "$STAGE" "$cell")"
-    if ! wait_ready "$(ready_url)" 60 >/dev/null; then
+    if ! readiness_probe 60 >/dev/null; then
       cat "$cell/octo.log" >&2 2>/dev/null || true
       die "target never became ready"
     fi
@@ -205,4 +234,11 @@ info "  $RUN_DIR/REPORT.md"
 
 # A caller orchestrating several runs (run-compare.sh) needs the run directory,
 # and parsing it out of the log would break the first time a message changes.
-[ -n "${RUN_DIR_OUT:-}" ] && printf '%s\n' "$RUN_DIR" > "$RUN_DIR_OUT"
+#
+# The explicit `exit 0` is not decoration: as the last statement of the script, a
+# false `[ -n ... ]` becomes the script's exit status, so every successful run that
+# did not set RUN_DIR_OUT — which is every direct `task bench` — reported failure.
+if [ -n "${RUN_DIR_OUT:-}" ]; then
+  printf '%s\n' "$RUN_DIR" > "$RUN_DIR_OUT"
+fi
+exit 0

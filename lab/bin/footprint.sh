@@ -52,9 +52,15 @@ case "$TARGET" in
 esac
 
 # --- cold start ---------------------------------------------------------------
+# What "ready" means depends on the build. A runtime with an admin port is asked
+# /readyz, which turns 200 once every connector and flow started; an older one is
+# polled on a business route until it answers 200. The second is a later moment than
+# the first — it also waits for the HTTP path to carry a full request — so cold-start
+# figures either side of this change are not directly comparable. The method is
+# recorded in the footprint for exactly that reason.
 START_EPOCH_MS="$(epoch_ms)"
 ID="$("$DRIVER" start "$STAGE" "$STATE")"
-if ! COLD_START_MS="$(wait_ready "$(ready_url)" 60)"; then
+if ! COLD_START_MS="$(readiness_probe 60)"; then
   warn "target never became ready; see $STATE/octo.log"
   cat "$STATE/octo.log" >&2 2>/dev/null || true
   die "footprint aborted"
@@ -65,7 +71,11 @@ COLD_START_MS=$(( READY_EPOCH_MS - START_EPOCH_MS ))
 dim "  cold start: ${COLD_START_MS}ms"
 
 # --- idle hold ----------------------------------------------------------------
-"$LAB_BIN/sampler-start.sh" "$TARGET" "$ID" "$STATE/idle.csv" "$STATE" 1.0
+# Idle is the one window where the process's own view is worth more than the OS's:
+# "what does a runtime serving nothing still allocate and collect" is a question
+# about the Go heap, and go_memstats answers it directly.
+METRICS_SCRAPE_URL="$(metrics_url "$TARGET")" \
+  "$LAB_BIN/sampler-start.sh" "$TARGET" "$ID" "$STATE/idle.csv" "$STATE" 1.0
 sleep "$IDLE_HOLD"
 "$LAB_BIN/sampler-stop.sh" "$STATE"
 
@@ -74,6 +84,8 @@ trap - EXIT
 
 # --- emit ---------------------------------------------------------------------
 export OUT ARTIFACT ARTIFACT_BYTES COLD_START_MS TARGET IDLE_HOLD
+READINESS_METHOD="$(readiness_method "$TARGET")" \
+IDLE_METRICS_CSV="$STATE/metrics.csv" \
 IDLE_CSV="$STATE/idle.csv" python3 - <<'PY'
 import csv, json, os, statistics
 
@@ -98,6 +110,9 @@ fp = {
     "artifact":      os.environ.get("ARTIFACT", ""),
     "artifactBytes": int(os.environ.get("ARTIFACT_BYTES", 0) or 0),
     "coldStartMs":   int(os.environ.get("COLD_START_MS", 0) or 0),
+    # "Ready" means different things to different builds; see the comment above the
+    # cold-start block. Without this the number is not interpretable.
+    "readinessMethod": os.environ.get("READINESS_METHOD", "route"),
     "idleHoldSeconds": int(os.environ.get("IDLE_HOLD", 0) or 0),
     "idleSamples":   len(settled),
     "idleCpuPctMean": round(statistics.fmean(cpus), 3) if cpus else None,
@@ -105,6 +120,47 @@ fp = {
     "idleRssBytesMean": int(statistics.fmean(rss)) if rss else None,
     "idleRssBytesMax":  max(rss) if rss else None,
 }
+
+# What an idle runtime holds inside the heap, when the process can be asked. A
+# standing goroutine count and a heap that grows while serving nothing are both
+# findings, and neither is visible in RSS.
+def idle_from_metrics(path):
+    try:
+        with open(path) as fh:
+            series = list(csv.DictReader(fh))
+    except OSError:
+        return {}
+    settled = series[3:] if len(series) > 6 else series
+    if not settled:
+        return {}
+
+    def col(name, cast=float):
+        out = []
+        for r in settled:
+            raw = (r.get(name) or "").strip()
+            if raw:
+                try:
+                    out.append(cast(raw))
+                except ValueError:
+                    pass
+        return out
+
+    goroutines, heap = col("goroutines"), col("heap_alloc_bytes")
+    allocs = col("alloc_bytes_total")
+    out = {}
+    if goroutines:
+        out["idleGoroutinesMean"] = round(statistics.fmean(goroutines), 1)
+        out["idleGoroutinesMax"] = int(max(goroutines))
+    if heap:
+        out["idleHeapBytesMean"] = int(statistics.fmean(heap))
+    # Allocation while idle: zero is the honest expectation, and anything else is
+    # background work nobody asked for.
+    if len(allocs) >= 2:
+        span = len(allocs) - 1
+        out["idleAllocBytesPerSecond"] = int((allocs[-1] - allocs[0]) / span) if span else None
+    return out
+
+fp.update(idle_from_metrics(os.environ.get("IDLE_METRICS_CSV", "")))
 
 with open(os.environ["OUT"], "w") as f:
     json.dump(fp, f, indent=2)

@@ -85,6 +85,29 @@ if [ -n "${SCENARIO:-}" ] && [ "$missing" -eq 0 ]; then
   fi
 fi
 
+# --- what the runtime can tell us about itself --------------------------------
+# Not a requirement: comparing two releases is the regression workflow this lab
+# exists for, and no release has an admin port yet. But which of the two readiness
+# paths a run took decides what its cold-start number means, so it is stated up
+# front rather than inferred afterwards from a JSON field.
+if [ "$missing" -eq 0 ]; then
+  if octo_has_admin_port "$TARGET"; then
+    if metrics_wanted "$TARGET"; then
+      ok "observe" "probes on :${ADMIN_PORT} and /metrics — readiness via /readyz"
+      if metrics_blocks_wanted "$TARGET"; then
+        warn "per-block metrics requested (${METRICS_BLOCKS}) — the engine will emit an event around EVERY block, in every flow"
+        dim "    this changes what is measured; the run id is stamped -blockmetrics"
+      fi
+    else
+      ok "observe" "probes on :${ADMIN_PORT}, metrics off (METRICS=0) — readiness via /readyz"
+    fi
+  else
+    # preflight does not load a scenario, so the route may not be known here.
+    skipped "observe" "this build serves no admin port — readiness falls back to polling ${READY_ROUTE:-${ROUTE:-the scenario route}}"
+    dim "    server-side metrics need a build that has it: BUILD=dev"
+  fi
+fi
+
 # --- what is actually under test ----------------------------------------------
 # Printed for every run, because "which build produced this number" is the one
 # question a benchmark result has to be able to answer.

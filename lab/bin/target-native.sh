@@ -24,10 +24,24 @@ start() {
   if [ "$OS" = "Darwin" ]; then time_args=(-l -o "$state/time.txt")
   else                          time_args=(-v -o "$state/time.txt"); fi
 
+  # Observability. Only passed to a build that documents the flags — an older
+  # runtime fails flag parsing outright, which would surface as "octo exited
+  # immediately" rather than as the version mismatch it is.
+  #
+  # The address is passed explicitly rather than left to default, so the port the
+  # harness scrapes and the port the runtime binds come from one place.
+  local obs_args=()
+  if octo_has_admin_port native; then
+    obs_args+=(--observability-addr ":${ADMIN_PORT:-39999}")
+    metrics_wanted native && obs_args+=(--metrics)
+    metrics_blocks_wanted native && obs_args+=(--metrics-blocks "$METRICS_BLOCKS")
+  fi
+
   # The tuning knobs arrive baked into the rendered config, so nothing about the
   # arm under test is passed here.
   /usr/bin/time "${time_args[@]}" \
-    "$bin" run --config "$config_dir" >"$state/octo.log" 2>&1 &
+    "$bin" run --config "$config_dir" \
+    ${obs_args[@]+"${obs_args[@]}"} >"$state/octo.log" 2>&1 &
   local wrapper=$!
   echo "$wrapper" > "$state/wrapper.pid"
 

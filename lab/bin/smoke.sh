@@ -44,11 +44,11 @@ trap cleanup EXIT
 
 step "starting $TARGET ($VARIANT)"
 "$DRIVER" start "$STAGE" "$STATE" >/dev/null
-if ! ready_ms="$(wait_ready "$(ready_url)" 60)"; then
+if ! ready_ms="$(readiness_probe 60)"; then
   cat "$STATE/octo.log" >&2 2>/dev/null || true
-  die "target never became ready at ${BASE_URL}${ROUTE}"
+  die "target never became ready"
 fi
-dim "  ready in ${ready_ms}ms"
+dim "  ready in ${ready_ms}ms (via $(readiness_method "$TARGET"))"
 
 step "smoke: ${BASE_URL}${ROUTE}"
 exit_code=0

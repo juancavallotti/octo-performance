@@ -80,6 +80,23 @@ start() {
     [ -n "${MEM_LIMIT:-}" ] && limit_args+=(--memory "$MEM_LIMIT")
   fi
 
+  # Observability. Configured by environment rather than by flags, because the
+  # image's CMD is `run --config /etc/octo/integrations` and appending flags would
+  # mean restating that command here — where it would silently rot the day the
+  # image changes it. Each flag's default is its environment variable, so this is
+  # the documented equivalent.
+  #
+  # The admin port is published so the harness can scrape from the host; inside the
+  # container it stays on the default, since nothing there competes for it.
+  local admin_args=()
+  if octo_has_admin_port docker; then
+    admin_args+=(-p "${ADMIN_PORT:-39999}:39999")
+    if metrics_wanted docker; then
+      admin_args+=(-e OCTO_METRICS=true)
+      metrics_blocks_wanted docker && admin_args+=(-e "OCTO_METRICS_BLOCKS=$METRICS_BLOCKS")
+    fi
+  fi
+
   # The runtime binds 8080 inside the container; publish it on the host port the
   # host profile declares.
   local cid
@@ -87,6 +104,7 @@ start() {
     --name "$CONTAINER_NAME" \
     -p "${HTTP_PORT:-8080}:8080" \
     -e HTTP_PORT=8080 \
+    ${admin_args[@]+"${admin_args[@]}"} \
     ${env_args[@]+"${env_args[@]}"} \
     ${limit_args[@]+"${limit_args[@]}"} \
     -v "$config_dir:/etc/octo/integrations:ro" \

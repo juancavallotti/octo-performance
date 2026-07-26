@@ -89,6 +89,15 @@ case "$TARGET" in
     ;;
 esac
 
+# ------------------------------------------------- observability under test ----
+# Whether the runtime was serving probes and metrics, and whether it was asked for
+# per-block telemetry. This belongs in the provenance record because the last of the
+# three is not free: watching any block makes the engine emit an event around every
+# block, so a run carrying it is not measuring the same thing as one that is not.
+ADMIN_PORT_AVAILABLE="$(octo_has_admin_port "$TARGET" && echo true || echo false)"
+METRICS_ON="$(metrics_wanted "$TARGET" && echo true || echo false)"
+READINESS_METHOD="$(readiness_method "$TARGET")"
+
 K6_VERSION="$(k6_version)"
 LAB_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo uncommitted)"
 LAB_DIRTY="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null | head -1 >/dev/null && \
@@ -100,7 +109,8 @@ export CPU_MODEL CPU_LOGICAL CPU_PHYSICAL CPU_PERF CPU_EFF MEM_BYTES \
        OS_NAME OS_VERSION OS_BUILD ARCH FD_LIMIT CLOUD_MACHINE_TYPE \
        OCTO_VERSION OCTO_ARTIFACT OCTO_ARTIFACT_BYTES IMAGE_REF IMAGE_DIGEST \
        DOCKER_NCPU DOCKER_MEM_BYTES DOCKER_SERVER K6_VERSION LAB_COMMIT LAB_DIRTY \
-       TARGET OUT BUILD_CHANNEL BUILD_META
+       TARGET OUT BUILD_CHANNEL BUILD_META \
+       ADMIN_PORT_AVAILABLE METRICS_ON READINESS_METHOD
 
 mkdir -p "$(dirname "$OUT")"
 python3 - <<'PY'
@@ -145,6 +155,19 @@ env = {
         "k6":        os.environ.get("K6_VERSION", "unknown"),
         "labCommit": os.environ.get("LAB_COMMIT", "unknown"),
         "labDirty":  os.environ.get("LAB_DIRTY", "false") == "true",
+    },
+    # What the runtime was asked to expose about itself, and how the harness decided
+    # it was up. Recorded on every run: "ready" means a later moment to a build with
+    # no admin port than to one with it, so a cold-start figure is only comparable
+    # against another captured the same way.
+    "observability": {
+        "adminPortAvailable": os.environ.get("ADMIN_PORT_AVAILABLE") == "true",
+        "adminBaseUrl": os.environ.get("ADMIN_BASE_URL", ""),
+        "metrics": os.environ.get("METRICS_ON") == "true",
+        # Per-block telemetry costs an event around every block in every flow, so a
+        # run that carries it is stamped -blockmetrics in its id as well.
+        "metricsBlocks": os.environ.get("METRICS_BLOCKS") or None,
+        "readinessMethod": os.environ.get("READINESS_METHOD", "route"),
     },
     "loadGenerator": {
         "baseUrl": os.environ.get("BASE_URL", ""),
