@@ -1,0 +1,45 @@
+{
+  "runId": "2026-07-25-m1pro-16gb-003-postgres-crud-docker-v0.4.3",
+  "generatedAt": "2026-07-26T01:02:48Z",
+  "scenario": "003-postgres-crud",
+  "target": "docker",
+  "hostProfile": "m1pro-16gb",
+  "octoVersion": "0.4.3",
+  "test": "steady",
+  "reps": 3,
+  "footprint": {
+    "target": "docker",
+    "artifact": "juancavallotti/octo-runtime:latest",
+    "artifactBytes": 14178164,
+    "coldStartMs": 1833,
+    "idleHoldSeconds": 30,
+    "idleSamples": 13,
+    "idleCpuPctMean": 0.076,
+    "idleCpuPctMax": 0.75,
+    "idleRssBytesMean": 9224192,
+    "idleRssBytesMax": 9224192
+  },
+  "baseline": {
+    "achievedRps": 1269.5928212196302,
+    "cpuMsPerRequest": 0.5934,
+    "rssBytesPer1kRps": 214831510,
+    "droppedIterations": 13804,
+    "failedRate": 0,
+    "p95Ms": 4147.0234
+  },
+  "tuned": {
+    "achievedRps": 805.7720306106617,
+    "cpuMsPerRequest": 0.9509,
+    "rssBytesPer1kRps": 278540718,
+    "droppedIterations": 38544,
+    "failedRate": 0,
+    "p95Ms": 5620.7202,
+    "knobs": {
+      "workers": "64",
+      "buffer": "256",
+      "pool": "8",
+      "maxOpenConns": "64",
+      "maxIdleConns": "64"
+    }
+  }
+}

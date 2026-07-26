@@ -168,7 +168,21 @@ Stated plainly, because a benchmark that hides its limitations is marketing.
   still perfectly valid — the proxy is constant across both. Native-vs-container is indicative
   only.
 - **`docker stats` understates true host cost.** It accounts for the container's own usage and not
-  the Docker Desktop VM overhead required to run it.
+  the Docker Desktop VM overhead required to run it. This is why the container sometimes reports a
+  *lower* CPU-ms/request than native (scenario 002: 0.437 against 0.485; scenario 006: 0.311
+  against 0.347). That is an accounting boundary, not an efficiency win — the port proxy's work is
+  real and simply falls outside the cgroup being measured.
+- **A containerised runtime reaches host dependencies by a longer road, and it shows.** Scenarios
+  003 and 005 talk to something on the host, so the container has to address it as
+  `host.docker.internal`: out through the VM's NAT, onto the host, and back in through a published
+  port. For a flow doing three database round trips per request that path dominates. Scenario 003
+  holds 1,500 req/s at a 1.3 ms p95 natively and cannot hold it at all in a container
+  (1,270 req/s, 4,147 ms p95), and raising `workers` there makes it *worse* rather than better,
+  because the extra concurrency piles onto the constrained path rather than onto Postgres.
+  **Read that as a property of this measurement setup, not of the runtime.** The comparable
+  arrangement is container-to-container on a shared Docker network, which the harness does not yet
+  do. Until it does, cross-target comparison for scenarios with host-side dependencies (003, 005)
+  is not merely indicative — it is misleading, and the container column for 003 should be ignored.
 - **The load generator shares the host with the server.** k6 and Octo compete for the same cores.
   This is a recorded known limitation, not a controlled variable. It compresses the absolute
   ceiling; it does not invalidate baseline↔tuned comparison, since both variants pay it equally.

@@ -170,6 +170,14 @@ def main():
     a("Throughput columns are the tuned arm where a scenario has one, so a missing "
       "cell means that combination has not been run rather than that it failed.")
     a("")
+    a("> **Ignore the container column for scenarios 003 and 005.** Both talk to something "
+      "running on the host, so the containerised runtime has to reach it as "
+      "`host.docker.internal` — out through the VM's NAT, onto the host, back in through a "
+      "published port. For 003, which makes three database round trips per request, that path "
+      "dominates the measurement completely. The comparable arrangement is container-to-container "
+      "on a shared Docker network, which this harness does not do yet. See "
+      "[METHODOLOGY.md](../METHODOLOGY.md).")
+    a("")
 
     a("---")
     a("")
