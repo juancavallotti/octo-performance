@@ -158,7 +158,9 @@ func (s *SSH) remoteCommand(c Cmd) string {
 		// Failing to change directory must not run the command somewhere else. Without
 		// the &&, a mistyped staging path silently runs octo in the login directory,
 		// where a relative config path resolves to a different file or to none.
-		b.WriteString("cd " + quote(c.Dir) + " && ")
+		b.WriteString("cd ")
+		b.WriteString(quote(c.Dir))
+		b.WriteString(" && ")
 	}
 	// exec so the remote shell is replaced: the pid the harness signals is then the
 	// program's own, not a shell that may or may not forward the signal.
@@ -180,13 +182,15 @@ func (s *SSH) remoteCommand(c Cmd) string {
 	if len(c.Env) > 0 {
 		b.WriteString("env")
 		for _, k := range sortedKeys(c.Env) {
-			b.WriteString(" " + quote(k+"="+c.Env[k]))
+			b.WriteString(" ")
+			b.WriteString(quote(k + "=" + c.Env[k]))
 		}
 		b.WriteString(" ")
 	}
 	b.WriteString(quote(c.Path))
 	for _, a := range c.Args {
-		b.WriteString(" " + quote(a))
+		b.WriteString(" ")
+		b.WriteString(quote(a))
 	}
 	return b.String()
 }
