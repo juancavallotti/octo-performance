@@ -1,0 +1,286 @@
+13:47:48 === matrix start: 7 scenarios x 2 targets, REPS=3 ===
+13:47:48     octo native: /Users/juancavallotti/.octo-versions/octo-0.6.0
+13:47:48     octo image:  juancavallotti/octo-runtime:0.6.0
+13:47:48 >>> 001-template-page / native
+==> preflight (host=m1pro-16gb target=native build=release)
+  ✓ curl         /usr/bin/curl
+  ✓ python3      /opt/homebrew/bin/python3
+  ✓ awk          /usr/bin/awk
+  ✓ k6           2.1.0
+  ✓ octo         0.6.0  (/Users/juancavallotti/.octo-versions/octo-0.6.0)
+  · docker       not needed for TARGET=native
+  ✓ observe      probes on :39999, metrics off (METRICS=0) — readiness via /readyz
+  ✓ build        release — 0.6.0
+  ✓ time         /usr/bin/time -l (BSD)
+  note: load generator and server share this host — see METHODOLOGY.md caveats
+
+==> preflight ok
+==> guard: both variants render from the scenario's single integration.yaml
+  ok
+==> run 2026-07-26-m1pro-16gb-001-template-page-native-v0.6.0
+  scenario=001-template-page target=native version=0.6.0 reps=3 test=steady
+  readiness=admin metrics=off
+  env -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-001-template-page-native-v0.6.0/env.json
+==> smoke gate
+  smoke passed
+==> footprint: native (idle hold 30s)
+  cold start: 307ms
+  idle RSS 28.5 MiB, idle CPU 0.0%
+  footprint -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-001-template-page-native-v0.6.0/footprint.json
+==> baseline / steady / rep 1
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> baseline / steady / rep 2
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> baseline / steady / rep 3
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 1
+  knobs: workers=128 buffer=256 pool=8
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 2
+  knobs: workers=128 buffer=256 pool=8
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 3
+  knobs: workers=128 buffer=256 pool=8
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> report
+  report -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-001-template-page-native-v0.6.0/REPORT.md
+  index -> /Users/juancavallotti/Documents/development/octo-performance/results/index.md
+==> done
+
+  /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-001-template-page-native-v0.6.0/REPORT.md
+13:57:24     ok
+13:57:24 >>> 001-template-page / docker
+==> preflight (host=m1pro-16gb target=docker build=release)
+  ✓ curl         /usr/bin/curl
+  ✓ python3      /opt/homebrew/bin/python3
+  ✓ awk          /usr/bin/awk
+  ✓ k6           2.1.0
+  ✓ docker       29.5.3 cpus=4 mem=8322359296
+  ✓ image        juancavallotti/octo-runtime:0.6.0 (0.6.0)
+  · octo         not needed for TARGET=docker
+  ✓ observe      probes on :39999, metrics off (METRICS=0) — readiness via /readyz
+  ✓ build        release — 0.6.0
+  ✓ time         /usr/bin/time -l (BSD)
+  note: load generator and server share this host — see METHODOLOGY.md caveats
+
+==> preflight ok
+==> guard: both variants render from the scenario's single integration.yaml
+  ok
+==> run 2026-07-26-m1pro-16gb-001-template-page-docker-v0.6.0
+  scenario=001-template-page target=docker version=0.6.0 reps=3 test=steady
+  readiness=admin metrics=off
+  env -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-001-template-page-docker-v0.6.0/env.json
+==> smoke gate
+  smoke passed
+==> footprint: docker (idle hold 30s)
+  cold start: 1020ms
+  idle RSS 11.2 MiB, idle CPU 0.007%
+  footprint -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-001-template-page-docker-v0.6.0/footprint.json
+==> baseline / steady / rep 1
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+  cooldown 15s
+==> baseline / steady / rep 2
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+  cooldown 15s
+==> baseline / steady / rep 3
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 1
+  knobs: workers=128 buffer=256 pool=8
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 2
+  knobs: workers=128 buffer=256 pool=8
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 3
+  knobs: workers=128 buffer=256 pool=8
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+  cooldown 15s
+==> report
+  report -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-001-template-page-docker-v0.6.0/REPORT.md
+  index -> /Users/juancavallotti/Documents/development/octo-performance/results/index.md
+==> done
+
+  /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-001-template-page-docker-v0.6.0/REPORT.md
+14:07:16     ok
+14:07:16 >>> 002-fanout-transform / native
+==> preflight (host=m1pro-16gb target=native build=release)
+  ✓ curl         /usr/bin/curl
+  ✓ python3      /opt/homebrew/bin/python3
+  ✓ awk          /usr/bin/awk
+  ✓ k6           2.1.0
+  ✓ octo         0.6.0  (/Users/juancavallotti/.octo-versions/octo-0.6.0)
+  · docker       not needed for TARGET=native
+  ✓ observe      probes on :39999, metrics off (METRICS=0) — readiness via /readyz
+  ✓ build        release — 0.6.0
+  ✓ time         /usr/bin/time -l (BSD)
+  note: load generator and server share this host — see METHODOLOGY.md caveats
+
+==> preflight ok
+==> guard: both variants render from the scenario's single integration.yaml
+  ok
+==> run 2026-07-26-m1pro-16gb-002-fanout-transform-native-v0.6.0
+  scenario=002-fanout-transform target=native version=0.6.0 reps=3 test=steady
+  readiness=admin metrics=off
+  env -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-002-fanout-transform-native-v0.6.0/env.json
+==> smoke gate
+  smoke passed
+==> footprint: native (idle hold 30s)
+  cold start: 126ms
+  idle RSS 33.3 MiB, idle CPU 0.0%
+  footprint -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-002-fanout-transform-native-v0.6.0/footprint.json
+==> baseline / steady / rep 1
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> baseline / steady / rep 2
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> baseline / steady / rep 3
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 1
+  knobs: workers=32 buffer=256 pool=32
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 2
+  knobs: workers=32 buffer=256 pool=32
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 3
+  knobs: workers=32 buffer=256 pool=32
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> report
+  report -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-002-fanout-transform-native-v0.6.0/REPORT.md
+  index -> /Users/juancavallotti/Documents/development/octo-performance/results/index.md
+==> done
+
+  /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-002-fanout-transform-native-v0.6.0/REPORT.md
+14:16:39     ok
+14:16:39 >>> 002-fanout-transform / docker
+==> preflight (host=m1pro-16gb target=docker build=release)
+  ✓ curl         /usr/bin/curl
+  ✓ python3      /opt/homebrew/bin/python3
+  ✓ awk          /usr/bin/awk
+  ✓ k6           2.1.0
+  ✓ docker       29.5.3 cpus=4 mem=8322359296
+  ✓ image        juancavallotti/octo-runtime:0.6.0 (0.6.0)
+  · octo         not needed for TARGET=docker
+  ✓ observe      probes on :39999, metrics off (METRICS=0) — readiness via /readyz
+  ✓ build        release — 0.6.0
+  ✓ time         /usr/bin/time -l (BSD)
+  note: load generator and server share this host — see METHODOLOGY.md caveats
+
+==> preflight ok
+==> guard: both variants render from the scenario's single integration.yaml
+  ok
+==> run 2026-07-26-m1pro-16gb-002-fanout-transform-docker-v0.6.0
+  scenario=002-fanout-transform target=docker version=0.6.0 reps=3 test=steady
+  readiness=admin metrics=off
+  env -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-002-fanout-transform-docker-v0.6.0/env.json
+==> smoke gate
+  smoke passed
+==> footprint: docker (idle hold 30s)
+  cold start: 1823ms
+  idle RSS 13.0 MiB, idle CPU 0.048%
+  footprint -> /Users/juancavallotti/Documents/development/octo-performance/results/2026-07-26-m1pro-16gb-002-fanout-transform-docker-v0.6.0/footprint.json
+==> baseline / steady / rep 1
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> baseline / steady / rep 2
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> baseline / steady / rep 3
+  knobs: workers=runtime default buffer=runtime default pool=runtime default
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 1
+  knobs: workers=32 buffer=256 pool=32
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded
+  cooldown 15s
+==> tuned / steady / rep 2
+  knobs: workers=32 buffer=256 pool=32
+  warm-up 10s
+warn: warm-up reported a non-zero exit; continuing
+  measuring
+warn: k6 exited 99 (threshold breach) — recorded

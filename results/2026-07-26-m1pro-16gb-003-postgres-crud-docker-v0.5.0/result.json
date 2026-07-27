@@ -1,0 +1,56 @@
+{
+  "runId": "2026-07-26-m1pro-16gb-003-postgres-crud-docker-v0.5.0",
+  "generatedAt": "2026-07-26T13:47:31Z",
+  "scenario": "003-postgres-crud",
+  "target": "docker",
+  "hostProfile": "m1pro-16gb",
+  "octoVersion": "0.5.0",
+  "buildChannel": "release",
+  "build": null,
+  "test": "steady",
+  "reps": 3,
+  "footprint": {
+    "target": "docker",
+    "artifact": "juancavallotti/octo-runtime:0.5.0",
+    "artifactBytes": 14742031,
+    "coldStartMs": 397,
+    "readinessMethod": "admin",
+    "idleHoldSeconds": 30,
+    "idleSamples": 13,
+    "idleCpuPctMean": 0.007,
+    "idleCpuPctMax": 0.03,
+    "idleRssBytesMean": 12873728,
+    "idleRssBytesMax": 12873728
+  },
+  "baseline": {
+    "achievedRps": 1329.9935867656638,
+    "cpuMsPerRequest": 0.4605,
+    "rssBytesPer1kRps": 31594786,
+    "droppedIterations": 0,
+    "failedRate": 1.1110864203017711e-05,
+    "p95Ms": 22.391949999999994
+  },
+  "tuned": {
+    "achievedRps": 1499.9715175239892,
+    "cpuMsPerRequest": 0.2945,
+    "rssBytesPer1kRps": 23516947,
+    "droppedIterations": 0,
+    "failedRate": 0,
+    "p95Ms": 2.218,
+    "knobs": {
+      "workers": "64",
+      "buffer": "256",
+      "pool": "8",
+      "maxOpenConns": "64",
+      "maxIdleConns": "64"
+    }
+  },
+  "observability": {
+    "adminPortAvailable": true,
+    "adminBaseUrl": "http://localhost:39999",
+    "metrics": false,
+    "metricsBlocks": null,
+    "readinessMethod": "admin"
+  },
+  "runtimeIdentity": null
+}

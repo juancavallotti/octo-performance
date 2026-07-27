@@ -1,0 +1,13 @@
+{
+  "target": "docker",
+  "artifact": "juancavallotti/octo-runtime:0.6.0",
+  "artifactBytes": 14783082,
+  "coldStartMs": 1823,
+  "readinessMethod": "admin",
+  "idleHoldSeconds": 30,
+  "idleSamples": 13,
+  "idleCpuPctMean": 0.048,
+  "idleCpuPctMax": 0.49,
+  "idleRssBytesMean": 13627392,
+  "idleRssBytesMax": 13627392
+}

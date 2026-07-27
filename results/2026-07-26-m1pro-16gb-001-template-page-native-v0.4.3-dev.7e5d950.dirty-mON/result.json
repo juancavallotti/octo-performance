@@ -1,0 +1,91 @@
+{
+  "runId": "2026-07-26-m1pro-16gb-001-template-page-native-v0.4.3-dev.7e5d950.dirty-mON",
+  "generatedAt": "2026-07-26T08:48:40Z",
+  "scenario": "001-template-page",
+  "target": "native",
+  "hostProfile": "m1pro-16gb",
+  "octoVersion": "0.4.3-dev.7e5d950.dirty",
+  "buildChannel": "dev",
+  "build": {
+    "channel": "dev",
+    "buildId": "0.4.3-dev.7e5d950.dirty",
+    "version": "0.4.3",
+    "source": {
+      "path": "/Users/juancavallotti/Documents/development/octo",
+      "commit": "7e5d950b8514bd381921531b42357bf2f4f52e74",
+      "shortCommit": "7e5d950",
+      "branch": "feat/observability",
+      "describe": "v0.4.3-56-g7e5d950-dirty",
+      "subject": "test(observability): make the remaining helpers hermetic",
+      "committedAt": "2026-07-26T01:27:39-07:00",
+      "dirty": true
+    },
+    "goVersion": "go1.26.4",
+    "buildTags": "",
+    "builtAt": "2026-07-26T08:38:48Z"
+  },
+  "test": "steady",
+  "reps": 3,
+  "footprint": {
+    "target": "native",
+    "artifact": "/Users/juancavallotti/Documents/development/octo-performance/.stage/builds/7e5d950-dirty/octo",
+    "artifactBytes": 70926274,
+    "coldStartMs": 146,
+    "readinessMethod": "admin",
+    "idleHoldSeconds": 10,
+    "idleSamples": 7,
+    "idleCpuPctMean": 0.141,
+    "idleCpuPctMax": 0.99,
+    "idleRssBytesMean": 37112100,
+    "idleRssBytesMax": 39370752,
+    "idleGoroutinesMean": 27.1,
+    "idleGoroutinesMax": 28,
+    "idleHeapBytesMean": 4606020,
+    "idleAllocBytesPerSecond": 56400
+  },
+  "baseline": {
+    "achievedRps": 5982.99079475521,
+    "cpuMsPerRequest": 0.1065,
+    "rssBytesPer1kRps": 12355795,
+    "droppedIterations": 505,
+    "failedRate": 0,
+    "p95Ms": 0.181,
+    "server": {
+      "messagesPerSecond": 5974.5,
+      "cpuMsPerMessage": 0.1065,
+      "allocBytesPerMessage": 23277,
+      "flowP95Ms": null,
+      "inFlightPeak": 4.0,
+      "messagesFailed": 0,
+      "messagesDropped": 0
+    }
+  },
+  "tuned": {
+    "achievedRps": null,
+    "cpuMsPerRequest": null,
+    "rssBytesPer1kRps": null,
+    "droppedIterations": null,
+    "failedRate": null,
+    "p95Ms": null,
+    "knobs": null
+  },
+  "observability": {
+    "adminPortAvailable": true,
+    "adminBaseUrl": "http://localhost:39999",
+    "metrics": true,
+    "metricsBlocks": null,
+    "readinessMethod": "admin"
+  },
+  "runtimeIdentity": {
+    "source": "octo_build_info",
+    "version": "0.4.3",
+    "buildDate": "2026-07-26T08:38:35Z",
+    "servicesModule": "standalone",
+    "flows": 1.0,
+    "connectors": 1.0,
+    "ready": 1.0,
+    "flowNames": [
+      "page"
+    ]
+  }
+}

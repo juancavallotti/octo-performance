@@ -1,0 +1,10 @@
+time=2026-07-26T02:12:24.750-07:00 level=INFO msg="observability listening" addr=[::]:39999
+time=2026-07-26T02:12:24.751-07:00 level=INFO msg="runtime services ready" module=standalone
+time=2026-07-26T02:12:24.752-07:00 level=INFO msg="resolved environment variables" count=1 declared=[HTTP_PORT]
+time=2026-07-26T02:12:24.764-07:00 level=INFO msg="starting runtime" version=0.4.3 connectors=1 flows=1
+time=2026-07-26T02:12:24.764-07:00 level=INFO msg="starting connector" connector=api type=http
+time=2026-07-26T02:12:24.766-07:00 level=INFO msg="http endpoint available" pattern=/page/{name} url=http://[::]:8080/page/{name}
+time=2026-07-26T02:12:24.767-07:00 level=INFO msg="starting flow" flow=page workers=8 source="http via connector \"api\""
+time=2026-07-26T02:12:24.767-07:00 level=INFO msg="runtime ready" connectors=1 flows=1
+🚀  octo v0.4.3 is up and ready to roll!
+time=2026-07-26T02:12:24.942-07:00 level=INFO msg="runtime stopped"

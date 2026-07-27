@@ -1,0 +1,88 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /Users/juancavallotti/Documents/development/octo-performance/scenarios/005-http-proxy/k6/steady.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 2880 max VUs, 20s max duration (incl. graceful stop):
+              * steady: 800.00 iterations/s for 10s (maxVUs: 288-2880, gracefulStop: 10s)
+
+
+running (01.0s), 0464/0465 VUs, 96 complete and 0 interrupted iterations
+steady   [  10% ] 0464/0465 VUs  01.0s/10s  800.00 iters/s
+
+running (02.0s), 0724/0725 VUs, 208 complete and 0 interrupted iterations
+steady   [  20% ] 0724/0725 VUs  02.0s/10s  800.00 iters/s
+
+running (03.0s), 0978/0979 VUs, 312 complete and 0 interrupted iterations
+steady   [  30% ] 0978/0979 VUs  03.0s/10s  800.00 iters/s
+
+running (04.0s), 1242/1247 VUs, 424 complete and 0 interrupted iterations
+steady   [  40% ] 1242/1247 VUs  04.0s/10s  800.00 iters/s
+
+running (05.0s), 1443/1444 VUs, 528 complete and 0 interrupted iterations
+steady   [  50% ] 1443/1444 VUs  05.0s/10s  800.00 iters/s
+
+running (06.0s), 1723/1723 VUs, 632 complete and 0 interrupted iterations
+steady   [  60% ] 1723/1723 VUs  06.0s/10s  800.00 iters/s
+
+running (07.0s), 1926/1926 VUs, 739 complete and 0 interrupted iterations
+steady   [  70% ] 1926/1926 VUs  07.0s/10s  800.00 iters/s
+
+running (08.0s), 2151/2151 VUs, 843 complete and 0 interrupted iterations
+steady   [  80% ] 2151/2151 VUs  08.0s/10s  800.00 iters/s
+
+running (09.0s), 2412/2413 VUs, 955 complete and 0 interrupted iterations
+steady   [  90% ] 2412/2413 VUs  09.0s/10s  800.00 iters/s
+
+running (10.0s), 2662/2663 VUs, 1059 complete and 0 interrupted iterations
+steady   [ 100% ] 2662/2663 VUs  10.0s/10s  800.00 iters/s
+
+running (11.0s), 2568/2673 VUs, 1163 complete and 0 interrupted iterations
+steady ↓ [ 100% ] 2672/2673 VUs  10s  800.00 iters/s
+
+running (12.0s), 2464/2673 VUs, 1267 complete and 0 interrupted iterations
+steady ↓ [ 100% ] 2672/2673 VUs  10s  800.00 iters/s
+
+running (13.0s), 2359/2673 VUs, 1372 complete and 0 interrupted iterations
+steady ↓ [ 100% ] 2672/2673 VUs  10s  800.00 iters/s
+
+running (14.0s), 2260/2673 VUs, 1471 complete and 0 interrupted iterations
+steady ↓ [ 100% ] 2672/2673 VUs  10s  800.00 iters/s
+
+running (15.0s), 2157/2673 VUs, 1574 complete and 0 interrupted iterations
+steady ↓ [ 100% ] 2672/2673 VUs  10s  800.00 iters/s
+
+running (16.0s), 2053/2673 VUs, 1678 complete and 0 interrupted iterations
+steady ↓ [ 100% ] 2672/2673 VUs  10s  800.00 iters/s
+
+running (17.0s), 1949/2673 VUs, 1782 complete and 0 interrupted iterations
+steady ↓ [ 100% ] 2672/2673 VUs  10s  800.00 iters/s
+
+running (18.0s), 1845/2673 VUs, 1886 complete and 0 interrupted iterations
+steady ↓ [ 100% ] 2672/2673 VUs  10s  800.00 iters/s
+
+running (19.0s), 1741/2673 VUs, 1990 complete and 0 interrupted iterations
+steady ↓ [ 100% ] 2672/2673 VUs  10s  800.00 iters/s
+
+running (20.0s), 1636/2673 VUs, 2095 complete and 0 interrupted iterations
+steady ↓ [ 100% ] 2672/2673 VUs  10s  800.00 iters/s
+
+  http_reqs                    2120 (104.71/s)
+  http_req_duration            med=7694.25ms p95=14082.39ms p99=14696.23ms max=14860.43ms
+  http_req_waiting             p95=14081.79ms
+  http_req_failed              0.000%
+  dropped_iterations           4268
+  vus_max                      2673
+  checks                       0 passed, 0 failed
+
+
+running (20.2s), 0000/2673 VUs, 2102 complete and 1629 interrupted iterations
+steady ✓ [ 100% ] 1629/2673 VUs  10s  800.00 iters/s
+time="2026-07-26T09:55:21-07:00" level=error msg="thresholds on metrics 'dropped_iterations, http_req_duration' have been crossed"

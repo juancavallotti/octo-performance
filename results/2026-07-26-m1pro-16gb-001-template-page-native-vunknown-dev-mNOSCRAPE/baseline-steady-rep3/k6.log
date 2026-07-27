@@ -1,0 +1,31 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /Users/juancavallotti/Documents/development/octo-performance/scenarios/001-template-page/k6/steady.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 6000 max VUs, 40s max duration (incl. graceful stop):
+              * steady: 6000.00 iterations/s for 30s (maxVUs: 600-6000, gracefulStop: 10s)
+
+
+running (01.0s), 0303/0603 VUs, 5347 complete and 0 interrupted iterations
+steady   [   3% ] 0304/0603 VUs  01.0s/30s  6000.00 iters/s
+
+  http_reqs                    9344 (5467.94/s)
+  http_req_duration            med=3.08ms p95=119.12ms p99=208.16ms max=289.67ms
+  http_req_waiting             p95=118.78ms
+  http_req_failed              0.000%
+  dropped_iterations           364
+  vus_max                      603
+  checks                       0 passed, 0 failed
+
+
+running (01.7s), 0000/0643 VUs, 9175 complete and 613 interrupted iterations
+steady ✗ [   6% ] 0405/0643 VUs  01.7s/30s  6000.00 iters/s
+time="2026-07-26T02:14:44-07:00" level=error msg="test run was aborted because k6 received a 'terminated' signal"

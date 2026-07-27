@@ -1,0 +1,13 @@
+{
+  "target": "native",
+  "artifact": "/Users/juancavallotti/.octo-versions/octo-0.6.0",
+  "artifactBytes": 48175634,
+  "coldStartMs": 126,
+  "readinessMethod": "admin",
+  "idleHoldSeconds": 30,
+  "idleSamples": 27,
+  "idleCpuPctMean": 0.0,
+  "idleCpuPctMax": 0.0,
+  "idleRssBytesMean": 34919765,
+  "idleRssBytesMax": 39878656
+}

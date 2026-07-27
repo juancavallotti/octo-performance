@@ -1,0 +1,54 @@
+{
+  "runId": "2026-07-26-m1pro-16gb-001-template-page-docker-v0.5.0",
+  "generatedAt": "2026-07-26T10:31:50Z",
+  "scenario": "001-template-page",
+  "target": "docker",
+  "hostProfile": "m1pro-16gb",
+  "octoVersion": "0.5.0",
+  "buildChannel": "release",
+  "build": null,
+  "test": "steady",
+  "reps": 3,
+  "footprint": {
+    "target": "docker",
+    "artifact": "juancavallotti/octo-runtime:0.5.0",
+    "artifactBytes": 14742031,
+    "coldStartMs": 490,
+    "readinessMethod": "admin",
+    "idleHoldSeconds": 30,
+    "idleSamples": 13,
+    "idleCpuPctMean": 0.006,
+    "idleCpuPctMax": 0.03,
+    "idleRssBytesMean": 10530816,
+    "idleRssBytesMax": 10530816
+  },
+  "baseline": {
+    "achievedRps": 3949.3902077937455,
+    "cpuMsPerRequest": 0.4012,
+    "rssBytesPer1kRps": 120464847,
+    "droppedIterations": 679068,
+    "failedRate": 0.014405986232526105,
+    "p95Ms": 3998.8137999999994
+  },
+  "tuned": {
+    "achievedRps": 15999.246168851343,
+    "cpuMsPerRequest": 0.1221,
+    "rssBytesPer1kRps": 5637641,
+    "droppedIterations": 0,
+    "failedRate": 0,
+    "p95Ms": 4.948,
+    "knobs": {
+      "workers": "128",
+      "buffer": "256",
+      "pool": "8"
+    }
+  },
+  "observability": {
+    "adminPortAvailable": true,
+    "adminBaseUrl": "http://localhost:39999",
+    "metrics": false,
+    "metricsBlocks": null,
+    "readinessMethod": "admin"
+  },
+  "runtimeIdentity": null
+}

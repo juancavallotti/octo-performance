@@ -1,0 +1,54 @@
+{
+  "runId": "2026-07-26-m1pro-16gb-005-http-proxy-native-v0.5.0",
+  "generatedAt": "2026-07-26T16:54:01Z",
+  "scenario": "005-http-proxy",
+  "target": "native",
+  "hostProfile": "m1pro-16gb",
+  "octoVersion": "0.5.0",
+  "buildChannel": "release",
+  "build": null,
+  "test": "steady",
+  "reps": 3,
+  "footprint": {
+    "target": "native",
+    "artifact": "/Users/juancavallotti/.octo-versions/octo-0.5.0",
+    "artifactBytes": 48073138,
+    "coldStartMs": 115,
+    "readinessMethod": "admin",
+    "idleHoldSeconds": 30,
+    "idleSamples": 28,
+    "idleCpuPctMean": 0.0,
+    "idleCpuPctMax": 0.0,
+    "idleRssBytesMean": 28823552,
+    "idleRssBytesMax": 38060032
+  },
+  "baseline": {
+    "achievedRps": 106.19938253011877,
+    "cpuMsPerRequest": 0.3334,
+    "rssBytesPer1kRps": 1249942935,
+    "droppedIterations": 38770,
+    "failedRate": 0,
+    "p95Ms": 26806.627
+  },
+  "tuned": {
+    "achievedRps": 798.9531716069021,
+    "cpuMsPerRequest": 0.2033,
+    "rssBytesPer1kRps": 82683554,
+    "droppedIterations": 0,
+    "failedRate": 0,
+    "p95Ms": 80.267,
+    "knobs": {
+      "workers": "512",
+      "buffer": "1024",
+      "pool": "8"
+    }
+  },
+  "observability": {
+    "adminPortAvailable": true,
+    "adminBaseUrl": "http://localhost:39999",
+    "metrics": false,
+    "metricsBlocks": null,
+    "readinessMethod": "admin"
+  },
+  "runtimeIdentity": null
+}

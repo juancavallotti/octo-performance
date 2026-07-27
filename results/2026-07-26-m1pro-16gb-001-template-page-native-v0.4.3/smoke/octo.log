@@ -1,0 +1,10 @@
+time=2026-07-26T10:06:02.680-07:00 level=INFO msg="runtime services ready" module=standalone
+time=2026-07-26T10:06:02.685-07:00 level=INFO msg="resolved environment variables" count=1 declared=[HTTP_PORT]
+time=2026-07-26T10:06:02.701-07:00 level=INFO msg="starting runtime" version=0.4.3 connectors=1 flows=1
+time=2026-07-26T10:06:02.701-07:00 level=INFO msg="starting connector" connector=api type=http
+time=2026-07-26T10:06:02.703-07:00 level=INFO msg="http endpoint available" pattern=/page/{name} url=http://[::]:8080/page/{name}
+time=2026-07-26T10:06:02.703-07:00 level=INFO msg="starting flow" flow=page workers=8 source="http via connector \"api\""
+time=2026-07-26T10:06:02.703-07:00 level=INFO msg="runtime ready" connectors=1 flows=1
+🚀  octo v0.4.3 is up and ready to roll!
+time=2026-07-26T10:06:02.886-07:00 level=INFO msg="runtime stopped"
+time=2026-07-26T10:06:02.886-07:00 level=ERROR msg="http connector serve failed" error="accept tcp [::]:8080: use of closed network connection"
