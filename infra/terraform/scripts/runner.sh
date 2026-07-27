@@ -22,19 +22,20 @@ echo "deb [signed-by=/etc/apt/keyrings/k6.gpg] https://dl.k6.io/deb stable main"
 apt-get update -y
 apt-get install -y k6
 
-# The Go toolchain: the harness is built from the checked-out repository rather than
-# downloaded, because the version of the *measuring instrument* has to be pinned to the
-# same commit as the scenarios it runs. A harness release and a scenario tree that
-# disagree is a class of failure with no symptom.
-GO_VERSION=1.26.4
-ARCH=$(dpkg --print-architecture)
-curl -fsSL "https://go.dev/dl/go$${GO_VERSION}.linux-$${ARCH}.tar.gz" -o /tmp/go.tgz
-rm -rf /usr/local/go
-tar -C /usr/local -xzf /tmp/go.tgz
-ln -sf /usr/local/go/bin/go /usr/local/bin/go
-rm -f /tmp/go.tgz
-
 install -d -o "${ssh_user}" -g "${ssh_user}" /srv/perf /srv/perf/campaigns
+
+# The lab: perf, labbackend, every scenario and every campaign spec, in one verified
+# archive. Nothing is built here and no repository is cloned — a runner that fetched a
+# binary from a release and scenarios from git could have the two disagree, silently,
+# because a scenario that loads is not the same as a scenario the harness was written
+# against.
+LAB_VERSION="${lab_version}"
+LAB_REPO="${lab_repo}"
+LAB_ROOT=/srv/perf
+LAB_USER="${ssh_user}"
+# shellcheck source=/dev/null
+. /tmp/install-lab.sh
+install_lab
 
 # The tuning that keeps the generator from being the bottleneck for a reason that has
 # nothing to do with cores.

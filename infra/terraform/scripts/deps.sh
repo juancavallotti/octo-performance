@@ -25,16 +25,22 @@ apt-get update -y
 apt-get install -y docker-ce docker-ce-cli containerd.io
 usermod -aG docker "${ssh_user}" || true
 
-# The Go toolchain, because scenario 005's setup.sh builds lab/backend from source.
-GO_VERSION=1.26.4
-ARCH=$(dpkg --print-architecture)
-curl -fsSL "https://go.dev/dl/go$${GO_VERSION}.linux-$${ARCH}.tar.gz" -o /tmp/go.tgz
-rm -rf /usr/local/go
-tar -C /usr/local -xzf /tmp/go.tgz
-ln -sf /usr/local/go/bin/go /usr/local/bin/go
-rm -f /tmp/go.tgz
-
 install -d -o "${ssh_user}" -g "${ssh_user}" /srv/perf
+
+# The same archive as the runner, unpacked to the same path.
+#
+# That is a requirement, not tidiness. A scenario's setup.sh is addressed by the path
+# the harness knows it by, and the harness runs on the runner — so this host is asked to
+# execute /srv/perf/scenarios/005-http-proxy/setup.sh and must actually have it there.
+# It also brings labbackend, so scenario 005's dependency is a shipped artifact with a
+# recorded version rather than something compiled at setup time.
+LAB_VERSION="${lab_version}"
+LAB_REPO="${lab_repo}"
+LAB_ROOT=/srv/perf
+LAB_USER="${ssh_user}"
+# shellcheck source=/dev/null
+. /tmp/install-lab.sh
+install_lab
 
 # Postgres and the backend must answer on the subnet address, not only on loopback.
 # Scenario setup scripts bind to 0.0.0.0 already; the firewall is what keeps that from

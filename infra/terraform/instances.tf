@@ -8,6 +8,11 @@
 locals {
   ssh_keys = "${var.ssh_user}:${trimspace(var.ssh_public_key)}"
 
+  # The installer is sourced by both startup scripts, so it lives in one file rather
+  # than being duplicated into two templates that would then drift apart — which is
+  # exactly what happened to the four orchestrators this lab replaced.
+  install_lab = file("${path.module}/scripts/install-lab.sh")
+
   common_metadata = {
     ssh-keys = local.ssh_keys
     # Project-wide keys are blocked so the key above is the only way in. A stray
@@ -41,10 +46,19 @@ resource "google_compute_instance" "runner" {
   }
 
   metadata = merge(local.common_metadata, {
-    startup-script = templatefile("${path.module}/scripts/runner.sh", {
-      k6_version = var.k6_version
-      ssh_user   = var.ssh_user
-    })
+    # Delivered as its own metadata entry and written out before the startup script
+    # runs, so the two scripts share one installer instead of two copies.
+    lab-installer = local.install_lab
+    startup-script = join("\n", [
+      "#!/usr/bin/env bash",
+      "curl -fsS -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/attributes/lab-installer > /tmp/install-lab.sh",
+      templatefile("${path.module}/scripts/runner.sh", {
+        k6_version  = var.k6_version
+        ssh_user    = var.ssh_user
+        lab_version = var.harness_version
+        lab_repo    = var.harness_repo
+      }),
+    ])
   })
 
   # A campaign is hours of sustained load. A preemptible or spot instance that
@@ -123,9 +137,16 @@ resource "google_compute_instance" "deps" {
   }
 
   metadata = merge(local.common_metadata, {
-    startup-script = templatefile("${path.module}/scripts/deps.sh", {
-      ssh_user = var.ssh_user
-    })
+    lab-installer = local.install_lab
+    startup-script = join("\n", [
+      "#!/usr/bin/env bash",
+      "curl -fsS -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/attributes/lab-installer > /tmp/install-lab.sh",
+      templatefile("${path.module}/scripts/deps.sh", {
+        ssh_user    = var.ssh_user
+        lab_version = var.harness_version
+        lab_repo    = var.harness_repo
+      }),
+    ])
   })
 
   scheduling {

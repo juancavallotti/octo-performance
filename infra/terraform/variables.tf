@@ -131,6 +131,31 @@ variable "octo_release_url_template" {
   default     = ""
 }
 
+variable "harness_version" {
+  description = <<-EOT
+    Lab release to install, e.g. "0.3.1" for tag harness/v0.3.1. Empty stages nothing and
+    the operator unpacks the archive by hand.
+
+    One version, one archive: `perf`, `labbackend`, every scenario and every campaign
+    spec come out of the same tarball, so the harness and the scenarios it runs cannot
+    be from different commits. That is not fastidiousness — a scenario that loads is not
+    the same as a scenario the harness was written against, and the disagreement has no
+    symptom until a number is wrong.
+
+    The version of the thing *under test* lives in the campaign spec. The version of the
+    *measuring instrument* lives here, beside the machine shape, which is the right place
+    for it: changing either changes what the numbers mean.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "harness_repo" {
+  description = "GitHub repository the release archive is fetched from."
+  type        = string
+  default     = "juancavallotti/octo-performance"
+}
+
 variable "k6_version" {
   description = "k6 release installed on the runner. Recorded with every series it produces."
   type        = string

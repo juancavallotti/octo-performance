@@ -54,9 +54,10 @@ output "inventory" {
       ssh          = "${var.ssh_user}@${google_compute_instance.deps[0].network_interface[0].network_ip}"
     } : null
 
-    image        = var.image
-    boot_disk_gb = var.boot_disk_gb
-    k6_version   = var.k6_version
+    image           = var.image
+    boot_disk_gb    = var.boot_disk_gb
+    k6_version      = var.k6_version
+    harness_version = var.harness_version
   }
 }
 
