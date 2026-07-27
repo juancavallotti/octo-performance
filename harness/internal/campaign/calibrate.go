@@ -123,6 +123,22 @@ func (r *Runner) Calibrate(ctx context.Context, cell plan.Cell, dir string) (*Ca
 	}
 
 	targets, stages := stats.RampStages(cap.StartRate, cap.PeakRate, cap.Steps, cap.Dwell, cap.Transition)
+
+	// A discarded rung at the start rate, held before the ramp begins.
+	//
+	// The first measured rung is the reference the latency criterion compares every
+	// later rung against, so it is the one rung that must not be contaminated — and
+	// without this it is the most contaminated of all: a cold runtime, and a generator
+	// still allocating a virtual-user pool sized for the top of the ramp. Measured on
+	// scenario 001, the first rung reported a mean of 11.6 ms where the steady-state
+	// figure is 0.44 ms. A reference twenty-six times too high does not merely weaken
+	// the criterion, it switches it off.
+	warmup := []loadgen.Stage{
+		{Target: cap.StartRate, Duration: cap.Transition},
+		{Target: cap.StartRate, Duration: cap.Warmup},
+	}
+	skip := cap.Transition + cap.Warmup
+
 	lreq := loadgen.Request{
 		Phase:       loadgen.Capacity,
 		URL:         r.url(sc),
@@ -139,6 +155,7 @@ func (r *Runner) Calibrate(ctx context.Context, cell plan.Cell, dir string) (*Ca
 		Pool:   loadgen.SizePool(cap.PeakRate, cell.Load.ExpectedLatency, cell.Load.VUCap),
 		OutDir: filepath.Join(dir, "k6-capacity"),
 	}
+	lreq.Stages = append(lreq.Stages, warmup...)
 	for _, s := range stages {
 		lreq.Stages = append(lreq.Stages, loadgen.Stage{Target: s.Target, Duration: s.Duration})
 	}
@@ -152,7 +169,7 @@ func (r *Runner) Calibrate(ctx context.Context, cell plan.Cell, dir string) (*Ca
 		s, _ := run.Series.Get(name)
 		return s
 	}
-	steps := stats.StepWindows(run.Started, targets, cap.Dwell, cap.Transition)
+	steps := stats.StepWindows(run.Started.Add(skip), targets, cap.Dwell, cap.Transition)
 	out.Knee = stats.FindKnee(steps,
 		get("k6.rps"), get("k6.dropped"), get("k6.failed"), get("k6.latency.mean"),
 		stats.DefaultKnee())

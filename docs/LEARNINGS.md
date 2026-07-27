@@ -315,3 +315,45 @@ the ordering is the fix, and the comment above it says so.
 `TestRollupSeparatesNothingEstablishedFromNoRegression` asserts the exact wording is absent, because
 the failure here is a sentence rather than a value. A campaign that decides some comparisons and
 declines others states both counts in the same sentence.
+
+## L26 — A capacity ramp with no warm-up calibrates against its own cold start
+
+**Evidence.** The first end-to-end calibration of scenario 001 chose **1,000 req/s**. The scenario's
+own history put the knee near 32,000, and a steady cell at 1,000 req/s then reported a client p95 of
+0.44 ms — nowhere near a limit. The ramp's own table said why:
+
+```
+offered 2000   achieved 2000.4  dropped 0     mean 11.57 ms   held
+offered 6222   achieved 5646.9  dropped 8354  mean 77.79 ms   the generator shed 8354 iterations
+```
+
+11.57 ms on the first rung, against a steady-state mean of 0.44 ms. The first rung was measuring a
+cold runtime and a load generator still allocating a virtual-user pool sized for the top of the ramp
+— 4,000 VUs — and the pool allocation is what shed the iterations on the second.
+
+The first rung is also the reference the latency criterion compares every later rung against. Setting
+it twenty-six times too high does not weaken that criterion, it switches it off: nothing can be three
+times 11.57 ms before something else fails first. So the ramp fell back to the drop count alone, and
+the drop count on rung two was the generator's own start-up.
+
+Every arm of the scenario would then have run at 1,000 req/s. Both would have held it comfortably,
+both would have reported sub-millisecond latency, and the campaign would have concluded — accurately,
+and uselessly — that the two versions agree at 3% of capacity.
+
+**Enforced by.** `Capacity.Warmup`, defaulting to one dwell, prepended as a rung at the start rate
+whose window is not evaluated. `campaign.Calibrate` offsets `stats.StepWindows` past it. With the
+warm-up the same ramp reads:
+
+```
+offered  2000   ratio 1.000  dropped    0   mean 0.36 ms   held
+offered 18888   ratio 0.999  dropped    0   mean 0.42 ms   held
+offered 23111   ratio 0.982  dropped 5547   mean 5.20 ms   the generator shed 5547 iterations
+```
+
+A 0.36 ms reference, a knee at 18,888, and a chosen rate of 9,444 — at which the measured cell ran
+9,443 req/s at a p95 of 0.17 ms.
+
+The general shape: **a measurement used as a reference for other measurements has to be at least as
+carefully taken as they are.** The measured passes had a warm-up from the first day, because
+everybody knows a cold runtime is slow. The ramp that decides what rate those passes run at did not,
+because it did not look like a measurement — it looked like setup.

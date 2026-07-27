@@ -254,6 +254,15 @@ type Capacity struct {
 	Dwell time.Duration `yaml:"dwell,omitempty"`
 	// Transition is the ramp between rungs, excluded from every measurement.
 	Transition time.Duration `yaml:"transition,omitempty"`
+	// Warmup is a discarded rung at StartRate, held before the ramp begins.
+	//
+	// Without it the first rung is measured against a cold runtime and a load
+	// generator still allocating its virtual-user pool, and the first rung is exactly
+	// the one the latency criterion uses as its reference. Measured directly: on
+	// scenario 001 the first rung reported a mean of 11.6 ms where the steady-state
+	// figure is 0.44 ms, which sets the reference twenty-six times too high and
+	// disables the criterion entirely. Defaults to one dwell.
+	Warmup time.Duration `yaml:"warmup,omitempty"`
 }
 
 // Declared reports whether the ramp has somewhere to climb to.
@@ -273,6 +282,9 @@ func (c Capacity) WithDefaults() Capacity {
 	if c.Transition <= 0 {
 		c.Transition = time.Second
 	}
+	if c.Warmup <= 0 {
+		c.Warmup = c.Dwell
+	}
 	return c
 }
 
@@ -280,7 +292,7 @@ func (c Capacity) WithDefaults() Capacity {
 // reviewable as a plan rather than discovered as a mistake.
 func (c Capacity) Duration() time.Duration {
 	c = c.WithDefaults()
-	return time.Duration(c.Steps) * (c.Dwell + c.Transition)
+	return c.Transition + c.Warmup + time.Duration(c.Steps)*(c.Dwell+c.Transition)
 }
 
 // Thresholds are the scenario's k6 pass/fail bounds.
