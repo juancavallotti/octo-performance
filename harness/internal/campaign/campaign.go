@@ -78,8 +78,20 @@ type Config struct {
 	Hosts     Hosts
 	Endpoints Endpoints
 
-	// Dir is the campaign output directory.
+	// Dir is where artifacts land, on the machine running the harness.
 	Dir string
+
+	// SubjectDir is where per-cell files are staged on the SUBJECT, and it must be
+	// absolute. It defaults to Dir, which is right only while the two machines are
+	// the same one.
+	//
+	// The distinction is not cosmetic. Every path handed to the subject — the config
+	// to read, the directory to run in — is interpreted by the subject's filesystem,
+	// and a relative path is not merely awkward there, it means something different.
+	// Even on one machine it breaks: the runtime is started with its working
+	// directory set to the cell, so a relative config path resolves against the cell
+	// rather than against the harness's own working directory.
+	SubjectDir string
 
 	// ResolveBinary turns an arm's reference into a path on the subject host.
 	ResolveBinary func(spec.BinaryRef) (string, error)
@@ -119,6 +131,15 @@ type LoadGenerator interface {
 }
 
 func (c *Config) withDefaults() {
+	// Absolute from here on. A subject resolves paths against its own working
+	// directory, which is never the harness's, so a relative path is a different
+	// path — silently, and only once a run reaches the subject.
+	if abs, err := filepath.Abs(c.Dir); err == nil {
+		c.Dir = abs
+	}
+	if c.SubjectDir == "" {
+		c.SubjectDir = c.Dir
+	}
 	if c.SampleInterval <= 0 {
 		c.SampleInterval = time.Second
 	}
@@ -206,10 +227,11 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("campaign: %w", err)
 	}
+	subjectDir := filepath.Join(cfg.SubjectDir, "cells", out.Slug())
 	cfg.Log("cell %s (ordinal %d)", cell.ID, cell.Ordinal)
 
 	// 1. Render the arm's config and put it where the subject will read it.
-	rendered, err := r.renderConfig(ctx, cell, dir)
+	rendered, err := r.renderConfig(ctx, cell, dir, subjectDir)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +269,7 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 	req := subject.StartRequest{
 		Caps:       caps,
 		ConfigPath: rendered.path,
-		WorkDir:    dir,
+		WorkDir:    subjectDir,
 		AdminAddr:  fmt.Sprintf(":%d", cfg.Endpoints.AdminPort),
 		Metrics:    true,
 		Env:        cell.Arm.Env,
@@ -382,7 +404,7 @@ type renderedConfig struct {
 // rendered config staged on its own resolves nothing and the subject exits before it
 // listens. Copying the tree also makes the cell directory a complete record: what ran
 // is there in full, and re-running it needs nothing from the repository.
-func (r *Runner) renderConfig(ctx context.Context, cell plan.Cell, dir string) (renderedConfig, error) {
+func (r *Runner) renderConfig(ctx context.Context, cell plan.Cell, dir, subjectDir string) (renderedConfig, error) {
 	srcPath := cell.Scenario.IntegrationPath()
 	src, err := os.ReadFile(srcPath)
 	if err != nil {
@@ -401,7 +423,7 @@ func (r *Runner) renderConfig(ctx context.Context, cell plan.Cell, dir string) (
 	}
 
 	srcDir := filepath.Dir(srcPath)
-	stageDir := filepath.Join(dir, "octo")
+	stageDir := filepath.Join(subjectDir, "octo")
 	if err := r.stageTree(ctx, srcDir, stageDir); err != nil {
 		return renderedConfig{}, err
 	}

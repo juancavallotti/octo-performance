@@ -134,6 +134,16 @@ func TestRunCellProducesADefensibleResult(t *testing.T) {
 		t.Errorf("withheld = %v on a build that accepts everything", out.Withheld)
 	}
 
+	// Every path the subject was handed is absolute. It resolves them against its
+	// own working directory, which is never the harness's, so a relative one means a
+	// different file — and the runtime is started inside the cell directory, so it
+	// breaks even when both are the same machine.
+	for i, a := range out.Argv {
+		if a == "--config" && i+1 < len(out.Argv) && !filepath.IsAbs(out.Argv[i+1]) {
+			t.Errorf("--config %q is relative", out.Argv[i+1])
+		}
+	}
+
 	// Readiness was detected, by a named method, and the admin port was confirmed
 	// rather than assumed.
 	if out.Ready.Method != "readyz" || !out.Ready.Confirmed {
@@ -389,5 +399,31 @@ flows:
 	}
 	if flowNames([]byte("service:\n  name: x\n")) != nil {
 		t.Error("a config with no flows must yield none")
+	}
+}
+
+func TestSubjectPathsAreAbsolute(t *testing.T) {
+	// A subject resolves paths against its own working directory, which is never the
+	// harness's. A relative --out therefore hands the runtime a path that means
+	// something different on the other side — and because the runtime is started
+	// with its working directory set to the cell, it breaks even when both are the
+	// same machine. It failed only when someone passed a relative --out, which is
+	// exactly the case a local run makes easy and a remote run makes certain.
+	cfg := Config{Dir: filepath.Join("relative", "out")}
+	cfg.withDefaults()
+
+	if !filepath.IsAbs(cfg.Dir) {
+		t.Errorf("Dir = %q, want an absolute path", cfg.Dir)
+	}
+	if cfg.SubjectDir != cfg.Dir {
+		t.Errorf("SubjectDir = %q, want it to default to Dir on a colocated topology", cfg.SubjectDir)
+	}
+
+	// A remote subject stages somewhere on its own filesystem, and that path is not
+	// derived from the runner's.
+	remote := Config{Dir: "out", SubjectDir: "/var/tmp/perf"}
+	remote.withDefaults()
+	if remote.SubjectDir != "/var/tmp/perf" {
+		t.Errorf("SubjectDir = %q, want it left alone when set", remote.SubjectDir)
 	}
 }
