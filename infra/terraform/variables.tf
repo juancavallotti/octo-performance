@@ -190,15 +190,19 @@ variable "octo_versions" {
 
 variable "octo_release_url_template" {
   description = <<-EOT
-    Where a release is fetched from. %s is the version.
+    Where a release is fetched from. %s is the version, without a leading v.
 
-    Empty means the operator stages the binaries themselves — which is the honest
-    default here, because this lab's subject is an internal runtime with no public
-    release URL, and inventing one that 404s at boot would fail the campaign at its
-    first cell rather than at apply time.
+    This defaulted to empty on the claim that the runtime had no public release URL.
+    That was simply false — every version is published with assets for every platform —
+    and the cost of the error was staging two binaries onto the subject by hand, twice,
+    while believing that was the designed arrangement.
+
+    The archive is a tarball containing `octo`, which subject.sh unpacks. Note that the
+    platform is baked into this string: a subject outside the x86 default needs the
+    matching URL, and getting it wrong stages a binary that cannot execute.
   EOT
   type        = string
-  default     = ""
+  default     = "https://github.com/juancavallotti/octo/releases/download/v%s/octo_linux_amd64.tar.gz"
 }
 
 variable "harness_version" {

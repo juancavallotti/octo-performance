@@ -32,9 +32,20 @@ if [ -n "$VERSIONS" ] && [ -n "$URL_TEMPLATE" ]; then
     url=$(printf "$URL_TEMPLATE" "$v")
     dest="/srv/perf/octo-versions/octo-$v"
     echo "fetching octo $v from $url"
-    if curl -fsSL "$url" -o "$dest"; then
+    # Releases ship a tarball, not a bare binary, so the archive is unpacked and the
+    # one member that matters is installed. Curling a .tar.gz straight to the
+    # destination path produces a file that is executable, correctly named, and gzip —
+    # and the campaign discovers that at its first cell, as a runtime that will not
+    # start, rather than here.
+    tmp=$(mktemp -d)
+    if case "$url" in
+         *.tar.gz|*.tgz) curl -fsSL "$url" | tar xz -C "$tmp" octo && mv "$tmp/octo" "$dest" ;;
+         *)              curl -fsSL "$url" -o "$dest" ;;
+       esac
+    then
       chmod 0755 "$dest"
       chown "${ssh_user}:${ssh_user}" "$dest"
+      echo "staged $dest"
     else
       # Loud, and not fatal. A campaign naming a version that is not here fails at
       # its first cell with a message that says which one; a boot that dies here
@@ -42,6 +53,7 @@ if [ -n "$VERSIONS" ] && [ -n "$URL_TEMPLATE" ]; then
       echo "WARNING: could not fetch octo $v from $url" >&2
       rm -f "$dest"
     fi
+    rm -rf "$tmp"
   done
 fi
 
