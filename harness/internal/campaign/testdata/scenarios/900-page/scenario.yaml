@@ -1,0 +1,21 @@
+# A scenario for exercising the cell procedure end to end.
+#
+# It is shaped exactly like a real one — same tunables, same load block, same
+# integration layout — because the point of running it is to test the procedure that
+# will run the real ones. What it is not is a workload anybody should draw a conclusion
+# from: the subject is fakeocto and the rate is chosen to finish in seconds.
+route: /page
+
+tunables:
+  - workers
+  - buffer
+  - pool
+
+load:
+  test: steady
+  model: open
+  rate: 400
+  duration: 4s
+  warmup: 1s
+  expectedLatency: 20ms
+  vuCap: 2000

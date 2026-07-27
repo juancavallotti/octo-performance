@@ -301,3 +301,32 @@ func TestGateDefaultsAreConservative(t *testing.T) {
 		t.Fatalf("gate defaults not applied: %+v", g)
 	}
 }
+
+func TestAnExplicitRateOverridesCalibration(t *testing.T) {
+	// A scenario that measures its own rate, run at a rate the operator names. The
+	// two are contradictory only if both layers are read as one; the outer layer is
+	// the instruction and the inner one is the default it replaces.
+	scenario := Load{Model: Open, Calibrate: true, CalibrateFraction: 0.5, Duration: time.Minute}
+
+	got := scenario.Merge(Load{Rate: 2000})
+	if got.Calibrate {
+		t.Error("naming a rate must switch calibration off, not collide with it")
+	}
+	if got.Rate != 2000 {
+		t.Errorf("Rate = %d", got.Rate)
+	}
+	if err := got.Validate(); err != nil {
+		t.Errorf("the resolved load is not valid: %v", err)
+	}
+
+	// And the other direction: a campaign that asks for calibration discards a rate
+	// the scenario declared, rather than carrying both.
+	fixed := Load{Model: Open, Rate: 16000, Duration: time.Minute}
+	got = fixed.Merge(Load{Calibrate: true, CalibrateFraction: 0.5})
+	if got.Rate != 0 || !got.Calibrate {
+		t.Errorf("resolved = %+v, want the declared rate dropped", got)
+	}
+	if err := got.Validate(); err != nil {
+		t.Errorf("the resolved load is not valid: %v", err)
+	}
+}

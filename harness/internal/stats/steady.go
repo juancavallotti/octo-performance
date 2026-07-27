@@ -62,6 +62,48 @@ func DefaultSteadyConfig() SteadyConfig {
 	}
 }
 
+// DriftPctAcrossWindow is what MaxSlopePctPerMin is really trying to bound: how much
+// the fitted trend moves the metric from one end of the measured window to the other,
+// as a percentage of its own mean.
+const DriftPctAcrossWindow = 2.0
+
+// SteadyConfigFor scales detection to the length of the pass being measured.
+//
+// A slope expressed per minute, applied to a window shorter than a minute, is an
+// extrapolation — and it tightens as the window shrinks. Two adjacent seconds at 400
+// and 402 requests differ by half a percent, which is nothing; extrapolated to a minute
+// it is a thirty percent trend, and a fixed two-percent-per-minute bound rejects it.
+// The consequence is a detector that silently finds no window at all on any pass much
+// shorter than sixty seconds, which is the wrong failure: it looks like an unsteady
+// subject and is really an unstated assumption about duration.
+//
+// So the bound is stated as drift across the window and converted, which leaves a
+// sixty-second pass at exactly the two percent per minute it always used.
+func SteadyConfigFor(pass time.Duration) SteadyConfig {
+	cfg := DefaultSteadyConfig()
+	if pass <= 0 {
+		return cfg
+	}
+
+	cfg.MinDuration = pass / 2
+	if cfg.MinDuration > 30*time.Second {
+		cfg.MinDuration = 30 * time.Second
+	}
+	if cfg.MinDuration < 2*time.Second {
+		cfg.MinDuration = 2 * time.Second
+	}
+
+	// The shortest window detection may accept is what the bound has to hold over,
+	// because that is the window most vulnerable to the extrapolation above.
+	over := cfg.MinDuration.Seconds()
+	if over < 1 {
+		over = 1
+	}
+	cfg.MaxSlopePctPerMin = DriftPctAcrossWindow * 60 / over
+	cfg.CorroborateMaxSlopePctPerMin = cfg.MaxSlopePctPerMin * 2.5
+	return cfg
+}
+
 // DetectSteady finds the earliest suffix of a load pass that is flat enough to measure.
 //
 // It walks candidate start points forward, and accepts the first whose remaining span

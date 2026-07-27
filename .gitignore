@@ -27,3 +27,6 @@ __pycache__/
 # goreleaser output
 dist/
 harness/bin/
+
+# Campaign output is generated; results worth keeping are published under results/.
+campaigns/out/

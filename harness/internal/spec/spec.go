@@ -164,10 +164,14 @@ func (l Load) Merge(over Load) Load {
 		out.Model = over.Model
 	}
 	if over.Rate != 0 {
-		out.Rate = over.Rate
+		// Naming a rate is an instruction not to measure one. Without this the
+		// override would collide with the scenario's calibrate flag and the campaign
+		// would be rejected as self-contradictory, which is the wrong reading: the
+		// contradiction is between two layers, and the outer layer is the answer.
+		out.Rate, out.Calibrate = over.Rate, false
 	}
 	if over.Calibrate {
-		out.Calibrate = true
+		out.Calibrate, out.Rate = true, 0
 	}
 	if over.CalibrateFraction != 0 {
 		out.CalibrateFraction = over.CalibrateFraction
@@ -248,6 +252,10 @@ type Scenario struct {
 
 	Route      string `yaml:"route"`
 	ReadyRoute string `yaml:"readyRoute,omitempty"`
+
+	// Integration is the runtime config, relative to the scenario directory. It
+	// defaults to octo/integration.yaml, which is where every scenario keeps it.
+	Integration string `yaml:"integration,omitempty"`
 
 	// Tunables names the knobs this scenario exposes, with the node path each lives
 	// at. A bare name defaults to the root-flow path, because workers, buffer and
@@ -509,6 +517,20 @@ func (s *Scenario) Validate() error {
 		return fmt.Errorf("scenario %s: %w", s.ID, err)
 	}
 	return nil
+}
+
+// IntegrationPath is the runtime config this scenario runs.
+//
+// One file per scenario, from which both arms are derived — the baseline by stripping
+// every tunable so the runtime falls back to its own defaults, the tuned arm by
+// rewriting them as literals. Two checked-in configs would drift, and the drift would
+// look like a result.
+func (s *Scenario) IntegrationPath() string {
+	rel := s.Integration
+	if rel == "" {
+		rel = filepath.Join("octo", "integration.yaml")
+	}
+	return filepath.Join(s.Dir, rel)
 }
 
 // TunableNames returns the knob names this scenario exposes.

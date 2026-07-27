@@ -27,6 +27,7 @@ const usage = `perf — the Octo performance lab harness
 
 usage:
   perf plan     --campaign <file> [--scenarios <dir>]   show the execution order and what it will cost
+  perf run      --campaign <file> [--out <dir>]         execute it, gating every cell
   perf version                                          print the binary's identity
 
 An eight-hour campaign should be reviewed as a plan, not discovered as a mistake.
@@ -41,6 +42,8 @@ func main() {
 	switch os.Args[1] {
 	case "plan":
 		err = cmdPlan(os.Args[2:])
+	case "run":
+		err = cmdRun(os.Args[2:])
 	case "version":
 		fmt.Println(buildinfo.Get())
 	case "-h", "--help", "help":

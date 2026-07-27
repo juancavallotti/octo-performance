@@ -273,3 +273,26 @@ have read as a broken runtime.
 fixtures under `internal/subject/testdata/help/` are the verbatim output of all four octo binaries
 this lab compares. `TestCapabilitiesComeFromTheArtifactNotTheVersionString` reads them rather than
 any prose, including this sentence.
+
+## L24 — A lookup that matches nothing looks exactly like a subject that did nothing
+
+**Evidence.** The cell procedure derived the flow name from the scenario id: strip the numeric
+prefix from `001-template-page` and you get `template-page`. The flow in that scenario is called
+`page`. So `octo_flow_duration_seconds{flow="template-page"}` matched no series, the histogram lookup
+returned nothing, and the cell recorded a server-side mean of zero and continued — while
+`octo_flow_messages_total`, which is aggregated by outcome and never touches the flow label, kept
+working and reported 5,381 completed messages.
+
+The result was a cell that looked complete and internally consistent: real throughput, real client
+latency, real message counts, and a server latency of exactly zero. Nothing in it was marked missing,
+because nothing knew it was. It survived every unit test in the package and was caught only by
+running against the real binaries and noticing a number that was too round.
+
+**Enforced by.** `campaign.flowNames` reads the flows out of the config that ran, which is the only
+thing that knows what the runtime will label its metrics with, and the names are recorded in
+`Server.Flows`. A histogram lookup that finds nothing logs the flow it looked for.
+`TestFlowNamesComeFromTheConfigNotTheScenarioId` covers the case, and the end-to-end cell test
+asserts a server mean that is present and non-zero.
+
+The general shape is worth more than the instance: an absent lookup and an absent phenomenon are
+indistinguishable unless something records which one happened. See also [L21](#l21).
