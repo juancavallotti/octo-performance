@@ -104,19 +104,6 @@ func TestValidateRefusesIndefensibleCampaigns(t *testing.T) {
 			mutate:  func(c *Campaign) { c.Order = Blocked },
 			wantErr: "orderReason",
 		},
-		{
-			name:    "open model with no rate and no calibration",
-			mutate:  func(c *Campaign) { c.Load.Rate = 0 },
-			wantErr: "needs a rate",
-		},
-		{
-			name: "closed model with no vus",
-			mutate: func(c *Campaign) {
-				c.Load.Model = Closed
-				c.Load.VUs = 0
-			},
-			wantErr: "needs vus",
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -136,12 +123,86 @@ func TestValidateRefusesIndefensibleCampaigns(t *testing.T) {
 	}
 }
 
-func TestValidateAcceptsCalibrationInsteadOfARate(t *testing.T) {
-	c, _ := ParseCampaign(strings.NewReader(validCampaign))
-	c.Load.Rate = 0
-	c.Load.Calibrate = true
+// A campaign that sets only a duration is well formed: the rate lives in the scenario.
+// Validating the load on the campaign alone checks the wrong layer, which is exactly
+// what the first real `perf plan` invocation caught.
+func TestCampaignValidateIgnoresTheLoadOverrideLayer(t *testing.T) {
+	c, err := ParseCampaign(strings.NewReader(validCampaign))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Load = Load{Duration: time.Minute} // no rate, no model
 	if err := c.Validate(); err != nil {
-		t.Fatalf("calibrate should satisfy the rate requirement: %v", err)
+		t.Fatalf("a campaign that only overrides duration must validate: %v", err)
+	}
+}
+
+func TestResolvedLoadValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      Load
+		wantErr string
+	}{
+		{
+			name: "open with a fixed rate",
+			in:   Load{Model: Open, Rate: 16000, Duration: time.Minute},
+		},
+		{
+			name: "open with calibration",
+			in:   Load{Model: Open, Calibrate: true, CalibrateFraction: 0.5, Duration: time.Minute},
+		},
+		{
+			name: "closed with vus",
+			in:   Load{Model: Closed, VUs: 200, Duration: time.Minute},
+		},
+		{
+			name:    "no duration",
+			in:      Load{Model: Open, Rate: 16000},
+			wantErr: "needs a duration",
+		},
+		{
+			name:    "open with neither rate nor calibration",
+			in:      Load{Model: Open, Duration: time.Minute},
+			wantErr: "needs a rate",
+		},
+		{
+			// Declaring both means one of them is a lie about what ran.
+			name:    "both a declared rate and calibration",
+			in:      Load{Model: Open, Rate: 16000, Calibrate: true, CalibrateFraction: 0.5, Duration: time.Minute},
+			wantErr: "cannot both",
+		},
+		{
+			name:    "calibration with no fraction",
+			in:      Load{Model: Open, Calibrate: true, Duration: time.Minute},
+			wantErr: "calibrateFraction",
+		},
+		{
+			name:    "closed with no vus",
+			in:      Load{Model: Closed, Duration: time.Minute},
+			wantErr: "needs vus",
+		},
+		{
+			name:    "unknown model",
+			in:      Load{Model: "sideways", Duration: time.Minute},
+			wantErr: "unknown load model",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.in.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error %q does not mention %q", err, tc.wantErr)
+			}
+		})
 	}
 }
 

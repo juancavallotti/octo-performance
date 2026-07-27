@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo-performance/internal/spec"
+	"github.com/juancavallotti/octo-performance/harness/internal/spec"
 )
 
 func campaign(arms []string, reps int) *spec.Campaign {

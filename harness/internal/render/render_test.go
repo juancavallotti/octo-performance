@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juancavallotti/octo-performance/internal/spec"
+	"github.com/juancavallotti/octo-performance/harness/internal/spec"
 	"gopkg.in/yaml.v3"
 )
 

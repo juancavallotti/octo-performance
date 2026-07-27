@@ -27,6 +27,12 @@ kramdown:
 exclude:
   - Taskfile.yml
   - lab/
+  - harness/
+  - infra/
+  - dist/
+  - .goreleaser.yaml
+  - release-please-config.json
+  - .release-please-manifest.json
   - .stage/
   - .claude/
   - .github/

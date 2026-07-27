@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo-performance/internal/loadgen"
+	"github.com/juancavallotti/octo-performance/harness/internal/loadgen"
 )
 
 // The corpus is written in the old harness's summary.json shape. These loaders are

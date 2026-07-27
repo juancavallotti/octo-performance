@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/juancavallotti/octo-performance/internal/spec"
+	"github.com/juancavallotti/octo-performance/harness/internal/spec"
 )
 
 // CellID identifies one measured repetition.
@@ -92,6 +92,11 @@ func Expand(c *spec.Campaign, scenarios map[string]*spec.Scenario) (*Plan, error
 			return nil, fmt.Errorf("plan: campaign names scenario %q but it was not loaded", id)
 		}
 		load := sc.Load.Merge(c.Load)
+		// The resolved load is the first point at which the specification is whole,
+		// so it is the first point at which it can be checked.
+		if err := load.Validate(); err != nil {
+			return nil, fmt.Errorf("plan: scenario %s load: %w", id, err)
+		}
 
 		for rep := 1; rep <= c.Reps; rep++ {
 			for pos, armIdx := range armOrder(len(c.Arms), rep, c.Order, c.Seed) {

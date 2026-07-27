@@ -1,0 +1,55 @@
+# Scenario 001 — template page.
+#
+# One flow, one block: an HTTP source renders a template resource straight into the
+# response body. No dependencies, no I/O wait, no log block in the hot path. It is the
+# cheapest thing the runtime can do, which makes it the scenario where per-request
+# overhead is most visible and the one to reach for first when the harness itself is
+# under suspicion.
+
+route: /page/octo
+
+tunables:
+  - workers
+  - buffer
+  - pool
+
+load:
+  test: steady
+  model: open
+
+  # Measured, not declared. The old lab carried STEADY_RATE=16000, calibrated from a
+  # real capacity ramp on an M1 Pro where the knee sat at 32–36k req/s and 16k was
+  # deliberately half of it: enough load that queueing is real, low enough that a
+  # healthy baseline drops nothing.
+  #
+  # That reasoning was sound and the number is now worthless. It was calibrated on
+  # 2026-07-25 with the load generator sharing the host, and by the next day every
+  # cell at that rate was shedding 260k–630k iterations. A rate calibrated once is a
+  # constant in the code and a variable in reality, so each campaign measures its own
+  # knee and runs every arm of this scenario at the same measured fraction of it.
+  calibrate: true
+  calibrateFraction: 0.5
+
+  duration: 60s
+  warmup: 10s
+
+  # Sizes the VU pool by Little's law, and it must come from the TAIL rather than the
+  # median. Median latency here is ~0.1 ms but p99 reached 10–20 ms even on healthy
+  # runs; a momentary concurrency spike that exhausts the pool makes the generator
+  # shed iterations, which reads in a report as server saturation when it is a
+  # generator artifact. This is the input to a recorded value, not a threshold.
+  expectedLatency: 25ms
+
+  # A hard ceiling. Reaching it means the generator was still scaling to keep up,
+  # which is the condition that made the old results bimodal — 1,600 VUs on a healthy
+  # run against 7,113 on a collapsed one, same binary.
+  vuCap: 16000
+
+thresholds:
+  p95: 20ms
+  p99: 50ms
+
+calibration: |
+  The knee on m1pro-16gb was 32–36k req/s: CPU scaled linearly to ~310% of one core
+  at 36k, then folded over at 40k, where CPU fell to 260% while the generator shed
+  9,161 iterations. Superseded — that host ran the generator alongside the subject.

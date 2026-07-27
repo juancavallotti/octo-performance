@@ -1,0 +1,72 @@
+# Release builds for the harness.
+#
+# The point of releasing at all is the VMs. Infrastructure is ephemeral — terraform
+# apply, run a campaign, terraform destroy — so every campaign starts from a bare
+# machine, and a startup script that curls a pinned tarball is the shortest path from
+# "no machine" to "machine that can measure something". Both the runner and the subject
+# install the same version, and perf refuses to drive an agent whose protocol version
+# does not match its own.
+#
+# Monorepo mode: the Go module lives in harness/, so Go itself requires the tag to be
+# harness/vX.Y.Z. release-please produces exactly that tag.
+
+version: 2
+
+monorepo:
+  tag_prefix: harness/
+  dir: harness
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  # perf runs on the runner VM and on a laptop for local iteration.
+  - id: perf
+    main: ./cmd/perf
+    binary: perf
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.version={{.Version}}
+      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.commit={{.FullCommit}}
+      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.date={{.CommitDate}}
+
+  # perf-agent only ever runs on a Linux subject. Building it for darwin would invite
+  # someone to sample a laptop and compare the result against a VM.
+  - id: perf-agent
+    main: ./cmd/perf-agent
+    binary: perf-agent
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.version={{.Version}}
+      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.commit={{.FullCommit}}
+      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.date={{.CommitDate}}
+
+archives:
+  - id: perf
+    ids: [perf]
+    name_template: "perf_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: perf-agent
+    ids: [perf-agent]
+    name_template: "perf-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksums:
+  # The startup scripts verify against this, so a truncated download fails at boot
+  # rather than halfway through a campaign.
+  name_template: "checksums.txt"
+
+changelog:
+  # release-please owns the changelog; goreleaser only ships artifacts.
+  disable: true
+
+release:
+  prerelease: auto

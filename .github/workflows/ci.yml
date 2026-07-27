@@ -1,0 +1,79 @@
+# Everything that can be checked without a VM, checked on every push.
+#
+# Roughly 60% of the harness is pure functions over values — the noise band, the
+# execution order, exposition differencing, config rendering, the validity gates — and
+# all of it runs here in seconds. A bug in those packages does not crash, it silently
+# corrupts a number, so this is the cheapest place to catch one.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: harness
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: harness/go.mod
+          cache-dependency-path: harness/go.sum
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt-clean:"; echo "$unformatted"; exit 1
+          fi
+
+      - run: go vet ./...
+
+      # -race because the orchestrator supervises processes and samplers concurrently,
+      # and a data race there would surface as an implausible measurement rather than
+      # as a crash.
+      - run: go test -race ./...
+
+      - name: go mod tidy is committed
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+  goreleaser-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: harness/go.mod
+          cache-dependency-path: harness/go.sum
+      # Catch a broken release config here rather than at the moment a release is cut.
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: validate
+        working-directory: infra/terraform
+        run: |
+          if [ -z "$(ls *.tf 2>/dev/null)" ]; then
+            echo "no terraform yet — skipping"; exit 0
+          fi
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate

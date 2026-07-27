@@ -33,6 +33,39 @@ tasks:
     cmds:
       - task --list
 
+  # --- the Go harness (harness/) -------------------------------------------
+  # The replacement for everything under lab/bin/. Both exist until the Go side
+  # reaches parity, at which point lab/ is deleted in one commit rather than
+  # left to drift alongside it.
+
+  harness:test:
+    desc: 'Run the harness test suite — no VM, no network, seconds'
+    dir: harness
+    cmds:
+      - go vet ./...
+      - go test -race ./...
+
+  harness:fmt:
+    desc: 'Format the harness'
+    dir: harness
+    cmds:
+      - gofmt -w .
+
+  harness:build:
+    desc: 'Build perf and perf-agent into harness/bin/'
+    dir: harness
+    cmds:
+      - go build -o bin/perf ./cmd/perf
+      - go build -o bin/perf-agent ./cmd/perf-agent
+
+  plan:
+    desc: 'Show a campaign''s execution order and what it will cost (CAMPAIGN=<file>)'
+    vars:
+      CAMPAIGN: '{{.CAMPAIGN | default "campaigns/regression-050-vs-060.yaml"}}'
+    cmds:
+      - go -C harness run ./cmd/perf plan --campaign {{.ROOT_DIR}}/{{.CAMPAIGN}}
+        --scenarios {{.ROOT_DIR}}/scenarios
+
   preflight:
     desc: 'Verify the lab has the tools it needs and print the versions that will be recorded'
     cmds:

@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/juancavallotti/octo-performance/internal/series"
+	"github.com/juancavallotti/octo-performance/harness/internal/series"
 )
 
 // Window is the interval a cell's numbers actually describe.

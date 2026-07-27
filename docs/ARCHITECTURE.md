@@ -49,12 +49,59 @@ stay interpretable afterwards.
 **Arms alternate on the same subject VM.** Giving each arm its own VM would make interleaving
 impossible and reintroduce exactly the confound interleaving exists to remove.
 
+## Repository layout
+
+A monorepo: the harness is one component among several, and the Go module is not the
+repository.
+
+```
+harness/            the Go module — cmd/ and internal/. Machinery, excluded from Pages.
+infra/terraform/    ephemeral GCP: runner, subject, deps
+campaigns/          campaign specs, checked in; a spec is the record of an intent
+scenarios/          one directory per workload: integration.yaml, k6 scripts, scenario.yaml
+docs/               ARCHITECTURE.md, LEARNINGS.md
+results/            published run output
+```
+
+GitHub Pages continues to serve from the repository root, for the reason `_config.yml`
+gives: the things worth publishing already live there and already cross-link by relative
+path, and copying generated reports into a subfolder would create a second source of
+truth for numbers that are supposed to have exactly one. `harness/` and `infra/` are
+excluded as machinery, the same way `lab/` was.
+
+## Releases, and how binaries reach the VMs
+
+The module lives in `harness/`, so Go requires its tags to be `harness/vX.Y.Z`.
+release-please produces exactly that from conventional-commit subjects scoped to the
+harness — `feat(harness): …` — and goreleaser publishes the artifacts on the tag. A
+commit that adds a scenario or records a result is not a harness change and needs no
+prefix; the repository's sentence-subject style survives the prefix where one is needed.
+
+Because the infrastructure is ephemeral, every campaign starts on a bare machine. Both
+startup scripts download the same pinned release and verify it against the published
+checksums: the runner installs `perf` and k6, the subject installs `perf-agent`. There
+is no pushing binaries over SSH and nothing embedded in anything else. `perf` refuses to
+drive an agent whose protocol version differs from its own, so a half-applied upgrade
+fails at the handshake instead of producing plausible data.
+
+The version *under test* lives in the campaign spec. The version of the *harness* lives
+in terraform, beside the machine shape — the right place for it, since changing either
+changes what the numbers mean.
+
+A binary built with plain `go build` reports its version as `dev` and says so in
+`perf version`. The lab's first rule is that a result which cannot be attributed to a
+version is not a result, and that applies to the harness as much as to the runtime it
+measures.
+
 ## Package tree
+
+Paths below are relative to `harness/`.
 
 ```
 cmd/perf                  operator CLI: plan | run | resume | collect | report | doctor
-cmd/perf-agent            subject-side supervisor + sampler; pushed per campaign, never installed
+cmd/perf-agent            subject-side supervisor + sampler, installed by terraform
 
+internal/buildinfo        the version stamped into a released binary
 internal/spec             campaign + scenario YAML: types, loading, defaulting, validation
 internal/plan             spec → ordered []Cell; interleaving; deterministic; content-hashed
 internal/render           integration.yaml → arm config (baseline strips / tuned rewrites)
@@ -159,9 +206,11 @@ There is deliberately no `RemoteSampler`/`LocalSampler` split and no `target-nat
 
 ## Why there is a second binary
 
-`perf-agent` is cross-compiled for linux/amd64, embedded in `perf` via `go:embed`, pushed once per
-campaign, verified by sha256, and driven over a single SSH session speaking NDJSON on stdio. No
-listener, no auth story, no installation, removed on teardown.
+`perf-agent` is installed on the subject by its own terraform startup script and driven over a
+single SSH session speaking NDJSON on stdio. No listener, no authentication story, nothing to
+secure — and no binary pushing, because the release pipeline already put it there. `perf` refuses
+to drive an agent reporting a different protocol version, so a half-applied upgrade fails at the
+handshake rather than producing plausible data.
 
 It earns its place three times over:
 
@@ -257,7 +306,7 @@ campaigns/<date>-<name>-<planhash8>/
   campaign.yaml               the spec as given, verbatim
   plan.json                   expanded cells + execution order, written BEFORE running
   fingerprint/{runner,subject}.json
-  agent.json                  sha256 + protocol version of the deployed agent
+  agent.json                  harness version + protocol version of both binaries
   state.json                  per-cell completion — the resume key
   run.log                     the harness's own NDJSON log
   cells/<scenario>__<arm>__rep<N>/

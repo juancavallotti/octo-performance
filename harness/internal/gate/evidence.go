@@ -1,8 +1,8 @@
 package gate
 
 import (
-	"github.com/juancavallotti/octo-performance/internal/series"
-	"github.com/juancavallotti/octo-performance/internal/stats"
+	"github.com/juancavallotti/octo-performance/harness/internal/series"
+	"github.com/juancavallotti/octo-performance/harness/internal/stats"
 )
 
 // Evidence is everything one cell produced.

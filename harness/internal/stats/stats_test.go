@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo-performance/internal/series"
+	"github.com/juancavallotti/octo-performance/harness/internal/series"
 )
 
 func seeded() *rand.Rand { return rand.New(rand.NewPCG(1, 2)) }

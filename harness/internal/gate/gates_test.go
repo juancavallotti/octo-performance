@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/juancavallotti/octo-performance/internal/series"
-	"github.com/juancavallotti/octo-performance/internal/stats"
+	"github.com/juancavallotti/octo-performance/harness/internal/series"
+	"github.com/juancavallotti/octo-performance/harness/internal/stats"
 )
 
 var base = time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)

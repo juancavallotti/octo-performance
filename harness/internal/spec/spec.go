@@ -450,13 +450,41 @@ func (c *Campaign) Validate() error {
 		add("unknown order %q", c.Order)
 	}
 
-	if c.Load.Model == Closed && c.Load.VUs == 0 {
-		add("a closed-model load needs vus")
-	}
-	if c.Load.Model != Closed && c.Load.Rate == 0 && !c.Load.Calibrate {
-		add("an open-model load needs a rate, or calibrate: true")
-	}
+	// The load is deliberately not validated here. A campaign's load block is an
+	// override layer over each scenario's defaults, so a campaign that sets only a
+	// duration is perfectly well formed — the rate lives in the scenario. What has to
+	// be coherent is the *resolved* load, which only exists once the two are merged,
+	// so [Load.Validate] is called per cell during expansion.
 
+	return errors.Join(errs...)
+}
+
+// Validate checks a fully resolved load — scenario defaults with campaign overrides
+// already applied. Anything less than that is only half a specification.
+func (l Load) Validate() error {
+	var errs []error
+	if l.Duration <= 0 {
+		errs = append(errs, errors.New("needs a duration"))
+	}
+	switch l.Model {
+	case Closed:
+		if l.VUs == 0 {
+			errs = append(errs, errors.New("a closed-model load needs vus"))
+		}
+	case Open, "":
+		if l.Rate == 0 && !l.Calibrate {
+			errs = append(errs, errors.New("an open-model load needs a rate, or calibrate: true"))
+		}
+		if l.Calibrate && l.Rate != 0 {
+			errs = append(errs, errors.New("a load cannot both calibrate its rate and declare one"))
+		}
+		if l.Calibrate && (l.CalibrateFraction <= 0 || l.CalibrateFraction >= 1) {
+			errs = append(errs, fmt.Errorf(
+				"calibrateFraction must be between 0 and 1, got %v", l.CalibrateFraction))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("unknown load model %q", l.Model))
+	}
 	return errors.Join(errs...)
 }
 

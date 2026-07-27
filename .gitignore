@@ -23,3 +23,7 @@ lab/hosts/*.local.env
 # Python bytecode
 __pycache__/
 *.pyc
+
+# goreleaser output
+dist/
+harness/bin/
