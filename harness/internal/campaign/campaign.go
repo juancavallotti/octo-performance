@@ -615,6 +615,9 @@ func (r *Runner) selectWindow(out *result.Cell, run loadgen.Run) {
 	if out.Subject.Present() && out.Subject.Fidelity == agent.Full {
 		if rate, _ := out.Subject.CPU().Rate(); !rate.Empty() {
 			cfg.Corroborate = rate
+			// The series carries how finely it was read, so the detector can tell a
+			// flat subject from one too cheap to register on the instrument.
+			cfg.CorroborateResolution = out.Subject.CPURateQuantum()
 		}
 	}
 	w, ok := stats.DetectSteady(rps, cfg)
@@ -624,9 +627,11 @@ func (r *Runner) selectWindow(out *result.Cell, run loadgen.Run) {
 		return
 	}
 	if !w.Corroborated {
-		out.WindowNote = fmt.Sprintf(
-			"accepted on throughput alone: the subject's CPU was not available to agree (sampler fidelity %q)",
-			out.Subject.Fidelity)
+		why := w.CorroborationNote
+		if why == "" {
+			why = fmt.Sprintf("the subject's CPU was not available to agree (sampler fidelity %q)", out.Subject.Fidelity)
+		}
+		out.WindowNote = "accepted on throughput alone: " + why
 	}
 }
 

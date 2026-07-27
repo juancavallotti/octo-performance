@@ -20,6 +20,9 @@ type Window struct {
 	// Corroborated records whether a second series was checked. A window accepted on
 	// throughput alone is weaker evidence than one where the subject's CPU agreed.
 	Corroborated bool
+	// CorroborationNote says, in the detector's own words, why corroboration did not
+	// happen. Empty when it did, or when no second series was offered at all.
+	CorroborationNote string
 }
 
 // Duration of the accepted window.
@@ -49,6 +52,17 @@ type SteadyConfig struct {
 	// CorroborateMaxSlopePctPerMin bounds the corroborating series' trend. Looser
 	// than the primary bound by default: CPU is noisier than request counts.
 	CorroborateMaxSlopePctPerMin float64
+	// CorroborateResolution is the smallest non-zero value the corroborating series
+	// could have reported — its quantum. For a CPU rate differenced out of a tick
+	// counter that is one tick per sampling interval; see agent.CPURateQuantum.
+	//
+	// Zero means unknown, and an unknown resolution is not treated as a fine one:
+	// the coarseness check simply does not run, leaving the trend bound in force.
+	CorroborateResolution float64
+	// CorroborateMaxQuantumFrac is how large that quantum may be, as a fraction of
+	// the corroborating series' own mean, before the series is held unable to
+	// answer. Above it the series abstains instead of vetoing.
+	CorroborateMaxQuantumFrac float64
 }
 
 // DefaultSteadyConfig is what campaigns use for a 60 s measured pass.
@@ -59,8 +73,21 @@ func DefaultSteadyConfig() SteadyConfig {
 		MaxCV:                        0.05,
 		MaxSlopePctPerMin:            2.0,
 		CorroborateMaxSlopePctPerMin: 5.0,
+		CorroborateMaxQuantumFrac:    DefaultMaxQuantumFrac,
 	}
 }
+
+// DefaultMaxQuantumFrac is the coarsest a corroborating series may be and still be
+// allowed to reject a window: its smallest observable step must be no more than a
+// tenth of its own mean.
+//
+// A tenth is chosen against what the corroborator is for. It exists to catch a runtime
+// still warming under load — a subject burning real CPU, where one clock tick per
+// sample is a percent or two of the signal and a genuine climb stands well clear of it.
+// It is not for a process idling at an eighth of a core, where the quantum is nearly
+// forty percent of the mean and the only thing a fitted line can describe is the
+// counter's own granularity.
+const DefaultMaxQuantumFrac = 0.10
 
 // DriftPctAcrossWindow is what MaxSlopePctPerMin is really trying to bound: how much
 // the fitted trend moves the metric from one end of the measured window to the other,
@@ -102,6 +129,28 @@ func SteadyConfigFor(pass time.Duration) SteadyConfig {
 	cfg.MaxSlopePctPerMin = DriftPctAcrossWindow * 60 / over
 	cfg.CorroborateMaxSlopePctPerMin = cfg.MaxSlopePctPerMin * 2.5
 	return cfg
+}
+
+// tooCoarseToCorroborate reports whether a series' own resolution is large enough,
+// against its own signal, that a trend fitted through it describes the instrument.
+//
+// This is a property of the measurement, not of the draw. A series that can only take
+// four distinct values will sometimes produce a steep fitted line and sometimes a flat
+// one from the same underlying constant, so a test on the fitted slope — or on its
+// significance — is a coin toss, and a detector built on one fails intermittently.
+// Asking what the instrument can resolve gives the same answer every time.
+func tooCoarseToCorroborate(s series.Series, cfg SteadyConfig) (float64, bool) {
+	if cfg.CorroborateResolution <= 0 || cfg.CorroborateMaxQuantumFrac <= 0 {
+		return 0, false
+	}
+	mean, ok := s.Mean()
+	if !ok || math.Abs(mean) < 1e-12 {
+		// Nothing to divide by. A series sitting at zero has no signal for its
+		// quantum to be small against.
+		return math.Inf(1), true
+	}
+	frac := cfg.CorroborateResolution / math.Abs(mean)
+	return frac, frac > cfg.CorroborateMaxQuantumFrac
 }
 
 // DetectSteady finds the earliest suffix of a load pass that is flat enough to measure.
@@ -154,24 +203,34 @@ func DetectSteady(rps series.Series, cfg SteadyConfig) (Window, bool) {
 
 		if !cfg.Corroborate.Empty() {
 			co := cfg.Corroborate.Window(start, last)
-			coSlope, ok := slopePctPerMin(co)
+			coSlope, slopeOK := slopePctPerMin(co)
+			frac, coarse := tooCoarseToCorroborate(co, cfg)
 			switch {
-			case !ok:
-				// The corroborating series cannot answer: too few points to fit a
-				// trend, or a mean of about zero, which is what a lightly loaded
-				// process differentiated from a coarse clock actually looks like —
-				// mostly quantisation steps around nothing.
-				//
-				// That is "cannot say", and it is not "not flat". Rejecting the
-				// window here would be rejecting it for want of evidence rather
-				// than on evidence, and the result would be a detector that finds
-				// no window at all on any subject cheap enough not to register —
-				// reported to the operator as an unsteady runtime.
-				//
-				// So the window is accepted with Corroborated left false, which is
-				// a recorded state the cell carries and the report prints. The
-				// weaker claim is made explicitly instead of a stronger one being
-				// refused silently.
+			// The corroborating series cannot answer. Two ways that happens, and
+			// neither of them is "not flat":
+			//
+			// It has too few points to fit a trend through, or a mean of about
+			// zero, so there is no arithmetic to do.
+			case !slopeOK:
+				w.CorroborationNote = "the corroborating series had no trend to fit"
+
+			// Or it can be fitted, but its own resolution is coarse enough against
+			// its own signal that the fit is describing the counter. A CPU rate
+			// differenced out of a 100 Hz tick counter moves in steps of one tick
+			// per sample; against a process using an eighth of a core those steps
+			// are nearly forty percent of the mean, and the least-squares line
+			// through ten of them has been measured swinging from +1088 %/min to
+			// −2342 %/min, sign included, across repeated runs of one unchanged
+			// workload whose throughput was constant to four decimal places.
+			case coarse:
+				w.CorroborationNote = fmt.Sprintf(
+					"the corroborating series resolves to %.3g, %.0f%% of its own mean — too coarse to tell a trend from its own granularity",
+					cfg.CorroborateResolution, frac*100)
+
+			// Rejecting for want of evidence is not rejecting on evidence. The
+			// window is accepted with Corroborated left false, which is a recorded
+			// state the cell carries and the report prints: the weaker claim is
+			// made explicitly rather than the stronger one being refused silently.
 			case math.Abs(coSlope) > cfg.CorroborateMaxSlopePctPerMin:
 				// Throughput has settled but the subject has not. Keep looking.
 				continue

@@ -105,6 +105,35 @@ func (c Collected) CPU() series.Series {
 	return c.seriesOf("subject.cpu.seconds", "seconds", func(s Sample) float64 { return s.CPUSeconds() })
 }
 
+// CPURateQuantum is the smallest non-zero utilisation this collection could have
+// reported: one clock tick spread across one sampling interval.
+//
+// The kernel counts process CPU in ticks, not seconds — a hundredth of a second on
+// every Linux this lab runs on. Differencing that counter therefore does not yield a
+// continuous rate; it yields multiples of one quantum. At 100 Hz sampled every 200 ms
+// the only observable utilisations are 0, 0.05, 0.10, 0.15 … and a process using an
+// eighth of a core produces a series with four distinct levels in it.
+//
+// That is fine for the thing the counter is for — total CPU over a whole window is
+// exact regardless of how coarsely it was read. It is not fine for asking whether the
+// series has a *trend*, because at that resolution the scatter between adjacent
+// samples is a large fraction of the signal and a least-squares line through it
+// describes the instrument. So the quantum travels with the series, and whoever fits
+// a trend to it can decide whether the fit means anything.
+//
+// Zero when the tick rate or the interval is unknown, which callers must read as
+// "unknown", not as "infinitely fine".
+func (c Collected) CPURateQuantum() float64 {
+	if c.Static.ClockTick <= 0 {
+		return 0
+	}
+	d, err := time.ParseDuration(c.Interval)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return (1 / float64(c.Static.ClockTick)) / d.Seconds()
+}
+
 // RSS returns the resident set in bytes.
 func (c Collected) RSS() series.Series {
 	return c.seriesOf("subject.rss.bytes", "bytes", func(s Sample) float64 { return float64(s.RSSBytes) })

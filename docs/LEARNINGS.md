@@ -401,3 +401,63 @@ behaviour before being committed.
 
 The general shape, again: **an instrument that cannot measure something must say so in its own
 voice, not in the subject's.**
+
+## L28 — The same instrument, answering confidently with its own granularity
+
+**Observed.** L27 shipped, CI ran, and the same test failed again with the same message: *"no
+interval of this pass was flat enough to measure"*. The fix had been real and had not been enough.
+
+L27 handled a corroborator with *no* answer — too few points, or a mean of about zero. This is a
+corroborator that answers, with a number, and the number is the counter's granularity. The kernel
+counts process CPU in clock ticks, so a rate differenced out of it cannot be continuous: at 100 Hz
+sampled every 200 ms the only observable utilisations are 0, 0.05, 0.10, 0.15 … Against a subject
+using an eighth of a core, one step is nearly **40% of the signal**, and the series has four
+distinct levels in it.
+
+Six runs of one unchanged workload on Linux, throughput constant at 400.0 rps in every bucket —
+CV 0.0000, slope 0.00000/s, r² 1.000 — and the corroborating CPU trend read:
+
+| run | fitted trend | r² |
+|---|---|---|
+| 1 | +1088 %/min | 0.063 |
+| 2 | +594 %/min | 0.079 |
+| 3 | +294 %/min | 0.007 |
+| 4 | **−2342 %/min** | 0.472 |
+| 5 | −1394 %/min | 0.107 |
+| 6 | +349 %/min | 0.019 |
+
+The sign flips. The magnitude spans an order of magnitude. Nothing about the workload changed. A
+seventh run came in at +139 %/min, under the 150 %/min bound, and *passed* — which is how this
+reached CI at all, and is the worst property of the whole failure: **it fails intermittently, so it
+gets retried until it passes**, and the retry is read as a flake rather than as the detector
+reporting a constant signal as a runaway trend.
+
+**The wrong fixes, and why.** Loosening the trend bound only moves the coin's bias. Testing the
+slope's *significance* fails too — run 4 has t = 2.67, p ≈ 0.03, "significant" at 5% and still pure
+noise. Both are tests on the draw, and the draw is the thing that varies.
+
+**Enforced by.** The veto is conditioned on **resolution**, which is a property of the measurement
+and identical on every run. `agent.Collected.CPURateQuantum` reports one clock tick per sampling
+interval — the smallest utilisation the collection could have observed — and `DetectSteady` lets a
+corroborating series reject a window only when that quantum is at most a tenth of the series' own
+mean (`DefaultMaxQuantumFrac`). Above it the series abstains, the window is accepted with
+`Corroborated: false`, and `Window.CorroborationNote` records the arithmetic in the cell and the
+report: *"resolves to 0.05, 38% of its own mean — too coarse to tell a trend from its own
+granularity."*
+
+A tenth is chosen against what the corroborator is *for*: catching a runtime still warming under
+real load, where the subject burns whole cores, one tick per sample is a percent or two of the
+signal, and a genuine climb stands well clear of it. `TestResolutionIsJudgedAgainstTheSignalNotThe`
+`Slope` holds that line — the same 0.05 quantum against a two-core subject is 2.5% of the signal,
+and there the veto still fires.
+
+**How it was found, which is the transferable part.** The first two attempts at this bug were
+reasoned from the failure message; both were wrong. The third built the failing environment —
+`docker run golang:1.26` plus k6, the repo mounted — reproduced it in one command, printed every
+candidate window's statistics, and the cause was unambiguous in a single run. *CI is a Linux
+machine and so is Docker.* An hour of guessing at a platform-specific failure buys less than five
+minutes of standing the platform up.
+
+The general shape: **a measurement's resolution is part of the measurement.** A number carried
+without it invites arithmetic that its own precision cannot support — and the arithmetic will
+produce a confident answer anyway.
