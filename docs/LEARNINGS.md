@@ -357,3 +357,47 @@ The general shape: **a measurement used as a reference for other measurements ha
 carefully taken as they are.** The measured passes had a warm-up from the first day, because
 everybody knows a cold runtime is slow. The ramp that decides what rate those passes run at did not,
 because it did not look like a measurement — it looked like setup.
+
+## L27 — "Cannot say" is not "not flat", one layer below where that was already fixed
+
+**Evidence.** CI on Linux failed `TestRunCellProducesADefensibleResult` with:
+
+```
+no steady window found: no interval of this pass was flat enough to measure;
+there is no silent fallback
+```
+
+The same test passes on macOS, and not by luck. macOS has no `/proc`, so the sampler reports
+`Coarse` fidelity and `campaign.selectWindow` deliberately declines to corroborate at all. Linux
+reports `Full`, so the corroboration path runs — and that path had never once executed on the
+machine it was written on.
+
+Inside it, `slopePctPerMin` returns `ok=false` when a series has too few points to fit a trend
+**or when its mean is about zero**. A cheap process sampled at 200 ms against a 100 Hz clock
+accrues at most a tick or two per interval, so its differentiated CPU rate is mostly quantisation
+steps around nothing. `DetectSteady` read that `!ok` as a failed corroboration, kept searching,
+and ran out of pass.
+
+The consequence is the worst shape a measurement error can take. The harness reported **"no
+interval of this pass was flat enough to measure"** — a statement about the subject — when what
+happened is that the instrument could not see. A runtime cheap enough not to register would be
+called unsteady forever, and the fix would have been looked for in the runtime.
+
+What makes this a row rather than a line in a commit message: **the same distinction had already
+been drawn, correctly, one layer up.** `selectWindow` carries a comment saying *"Rejecting a
+window for want of evidence is not the same as rejecting it on evidence, so the weaker claim is
+made explicitly instead"* — and then calls `DetectSteady`, which did the opposite. Getting a
+principle right in one place is not the same as enforcing it, and the place it was enforced was
+the place the author could run.
+
+**Enforced by.** `DetectSteady` accepts the window with `Corroborated: false` when the
+corroborating series cannot answer, and still vetoes when it can answer and disagrees.
+`Corroborated` is already carried into `cell.json` and printed in the report, so the weaker claim
+gets stated rather than the stronger one silently refused.
+`TestACorroboratorThatCannotAnswerDoesNotVetoTheWindow` covers all-zeros, a single point, and a
+series that windows to nothing; `TestACorroboratorThatCanAnswerStillVetoes` covers the case the
+check exists for, so the fix cannot have deleted it. Both were confirmed to fail against the old
+behaviour before being committed.
+
+The general shape, again: **an instrument that cannot measure something must say so in its own
+voice, not in the subject's.**
