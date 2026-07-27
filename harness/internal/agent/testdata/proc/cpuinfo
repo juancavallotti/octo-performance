@@ -1,0 +1,19 @@
+processor	: 0
+vendor_id	: GenuineIntel
+model name	: Intel(R) Xeon(R) Platinum 8581C CPU @ 2.30GHz
+cpu MHz		: 2300.000
+
+processor	: 1
+vendor_id	: GenuineIntel
+model name	: Intel(R) Xeon(R) Platinum 8581C CPU @ 2.30GHz
+cpu MHz		: 2300.000
+
+processor	: 2
+vendor_id	: GenuineIntel
+model name	: Intel(R) Xeon(R) Platinum 8581C CPU @ 2.30GHz
+cpu MHz		: 2300.000
+
+processor	: 3
+vendor_id	: GenuineIntel
+model name	: Intel(R) Xeon(R) Platinum 8581C CPU @ 2.30GHz
+cpu MHz		: 2300.000

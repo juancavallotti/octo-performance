@@ -1,0 +1,14 @@
+Name:	octo
+Umask:	0022
+State:	S (sleeping)
+Tgid:	1234
+Pid:	1234
+PPid:	1
+Threads:	42
+VmPeak:	  3145728 kB
+VmSize:	  2097152 kB
+VmHWM:	   327680 kB
+VmRSS:	   262144 kB
+RssAnon:	   200000 kB
+voluntary_ctxt_switches:	918273
+nonvoluntary_ctxt_switches:	4455

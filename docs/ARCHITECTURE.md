@@ -28,6 +28,7 @@ the same procedure, and a publishing path that printed point estimates from satu
   subject VM  c4-standard-8
     ├─ perf-agent        supervises octo; samples /proc at 1 Hz; NDJSON over one ssh session
     └─ octo run --config … [--observability-addr :39999] [--metrics]
+                         admin port serves /healthz, /readyz, and /metrics with --metrics
         │
         ▼
   deps VM     c4-standard-4      (only scenarios that need it)
@@ -133,7 +134,7 @@ is testable without a VM, a network, or a subprocess.
 1. render the arm's config → `Put` into a per-cell staging dir on the subject
 2. `Capabilities` (cached by binary sha256) → assemble argv; withhold `--metrics` when absent
 3. `Start`; `Ready`; record cold start **and the method used to detect it**
-4. positive capability confirmation: if an admin port was detected, `/livez` must answer
+4. positive capability confirmation: if an admin port was detected, `/healthz` must answer
 5. `Identity` from `/metrics` — what is *running*, against what was intended
 6. start samplers (subject proc, prom, runner host) — **before** the window
 7. smoke pass, once per scenario+arm — a load run against a broken endpoint is not a result
@@ -156,12 +157,17 @@ Five abstractions. Everything else is a plain struct.
 ```go
 // exec — the boundary between local iteration and a real campaign.
 // Args is argv, never a shell string: every quoting bug in lab/bin/ is gone by construction.
+// A non-zero exit is data, not an error: k6 exits 99 on a threshold breach, and that
+// describes the run rather than the harness. Run errors only when a command could not
+// be run at all; the status goes in Result.ExitCode where a gate can read it.
 type Runner interface {
 	Name() string
 	Run(ctx context.Context, c Cmd) (Result, error)
 	Start(ctx context.Context, c Cmd) (Process, error)
 	Put(ctx context.Context, dst string, mode fs.FileMode, r io.Reader) error
 	Get(ctx context.Context, src string) (io.ReadCloser, error)
+	MkdirAll(ctx context.Context, dir string, mode fs.FileMode) error
+	RemoveAll(ctx context.Context, dir string) error
 	Close() error
 }
 
@@ -277,6 +283,26 @@ was — it says what changed and where.
 `Render` fails when a tuned selector matches zero nodes, when a selector matches more than one path
 without an explicit `[*]`, or when post-render verification finds a baseline still declaring a
 tunable. `Render(Render(x)) == Render(x)` is asserted in tests.
+
+## The time series never touches disk
+
+k6 emits one CSV row per observation and about a dozen observations per request. A
+sixty-second pass at sixteen thousand requests per second is thirteen million rows and
+roughly two gigabytes — for one cell out of seventy. The old lab's answer was to keep no
+time series at all, which is why it could not detect a steady window, could not see the
+achieved rate fall during a run, and could not tell a generator that grew its pool from
+one that did not.
+
+So `k6 --out csv=` writes to a named pipe and `loadgen.Aggregator` folds the rows into
+one-second buckets as they arrive. What reaches disk is sixty rows: rate, mean and max
+latency, time to first byte, virtual users, dropped iterations and failures, per second.
+The raw row count and the count of rows that did not parse are both recorded, so a
+reader can confirm nothing was lost on the way and a change in k6's output shape shows
+up as a number rather than as silence.
+
+Only the first three columns are parsed, by hand rather than with a CSV reader. This
+runs thirteen million times per cell on the machine whose spare capacity the entire
+experiment depends on.
 
 ## Gates
 

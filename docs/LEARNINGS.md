@@ -226,3 +226,50 @@ invert "the CPU spike preceded the RPS drop". GCP VMs are NTP-disciplined, but "
 **Enforced by.** The agent handshake measures the offset over N round trips (minimum-RTT sample), at
 cell start and again at cell end. Offset, uncertainty and inter-probe drift are recorded per cell,
 and drift beyond threshold is a finding.
+
+## L21 — Absent and zero are different claims
+
+**Evidence.** k6 omits `dropped_iterations` from the summary entirely when a run dropped nothing.
+A parser that reads a missing metric as zero and a present zero as zero cannot tell a clean run from
+one whose generator never reported. The same shape appears throughout: `octo_build_info` is absent
+from a build with no `--metrics`, and the old lab's `runtime-identity.json` recorded that absence as
+an empty string indistinguishable from a failed scrape.
+
+This is the optimistic direction, which is the dangerous one. Every absence here resolves to
+"nothing went wrong".
+
+**Enforced by.** Every parsed metric carries `Present` beside its value —
+`loadgen.Counted`, `Rated`, `Gauged`, `Trend`, and `promx.Quantile.Ok`. `TestAbsentIsNotZero` asserts
+it against both k6 fixtures, one of which dropped 11,292 iterations and one of which dropped none.
+
+## L22 — A time series that costs two gigabytes per cell is a time series nobody keeps
+
+**Evidence.** k6 emits one CSV row per observation and about a dozen observations per request. Sixty
+seconds at sixteen thousand requests per second is thirteen million rows, roughly two gigabytes, for
+one cell out of seventy. The old lab's response was to keep no time series at all — only the
+end-of-run summary — which is why it could not detect a steady window, could not see the achieved
+rate fall during a run, and could not distinguish a generator that grew its pool from one that did
+not. Three of the gates this rebuild depends on were impossible for want of a file nobody wanted to
+store.
+
+**Enforced by.** `k6 --out csv=` writes to a named pipe and `loadgen.Aggregator` folds the rows into
+one-second buckets as they arrive; the raw rows are never stored. Sixty rows reach disk. `RawRows`
+and `UnparsedRows` are recorded, so loss is visible as a number rather than as silence, and
+`TestK6DrivesARealLoadPassAndStreamsItsSeries` fails if any artifact in a cell directory exceeds four
+megabytes.
+
+## L23 — Documenting from memory is the same mistake as inferring from a version string
+
+**Evidence.** `docs/ARCHITECTURE.md` specified the positive capability confirmation as "the admin
+port must answer `/livez`". The runtime has never served `/livez`. `octo run --help` says `/healthz`
+and `/readyz`, and it said so the whole time.
+
+This ledger's oldest rule is to ask the artifact rather than believe a claim about it, and the
+document stating that rule broke it — in the one paragraph specifying a probe. Had the code been
+written to match the document, every cell would have failed its confirmation and the failure would
+have read as a broken runtime.
+
+**Enforced by.** The three admin routes are constants in `internal/subject`, named once, and the
+fixtures under `internal/subject/testdata/help/` are the verbatim output of all four octo binaries
+this lab compares. `TestCapabilitiesComeFromTheArtifactNotTheVersionString` reads them rather than
+any prose, including this sentence.

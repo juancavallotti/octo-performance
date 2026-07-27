@@ -29,6 +29,12 @@ jobs:
           go-version-file: harness/go.mod
           cache-dependency-path: harness/go.sum
 
+      # k6's summary object and CSV columns have both moved between releases, so the
+      # parsers are verified against a real k6 rather than only against fixtures. The
+      # tests skip loudly without it, which would quietly stop testing the one part of
+      # the harness whose input contract nobody controls.
+      - uses: grafana/setup-k6-action@v1
+
       - name: gofmt
         run: |
           unformatted="$(gofmt -l .)"
