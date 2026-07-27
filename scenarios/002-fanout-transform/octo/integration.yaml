@@ -1,7 +1,7 @@
 # Scenario 002 — fan-out and transform. Single source of truth for this integration.
 #
-# lab/bin/render-config.py derives both arms: baseline strips the knobs listed in
-# scenario.env's TUNABLES so the runtime uses its own defaults; tuned rewrites them.
+# The harness derives both arms: baseline strips the knobs listed in
+# scenario.yaml's tunables so the runtime uses its own defaults; tuned rewrites them.
 #
 # Unlike scenario 001, this flow uses composite blocks. `fork` hands its branches to
 # the shared worker pool, so `pool` is exercised here for the first time — scenario

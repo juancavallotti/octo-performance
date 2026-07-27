@@ -113,7 +113,7 @@ PAYLOAD_RECORDS=753 task bench SCENARIO=007-csv-transform BUILD=dev
 
 `BUILD=dev` is required until the extension libraries ship. Without it the run
 stops at preflight with the list of functions the release does not declare — the
-scenario declares what it needs as `REQUIRES_CEL` in `scenario.env`, and the
+scenario declares what it needs as `requiresCel` in `scenario.yaml`, and the
 harness asks the artifact directly rather than trusting a version string.
 
 ## Caveats specific to this scenario

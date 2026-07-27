@@ -1,30 +1,22 @@
 version: '3'
 
-# The performance lab's entry points. The tasks are a thin, discoverable interface;
-# the substantive work lives in lab/bin/ because it involves background process
-# supervision, signal handling and PID discovery — things that belong in scripts
-# rather than in YAML.
+# The performance lab's entry points.
 #
-# Every task takes SCENARIO and TARGET as variables, e.g.
-#   task bench SCENARIO=001-template-page TARGET=docker REPS=5
+# Thin on purpose: the substance lives in harness/, as one Go module with tests. The
+# previous version of this file drove thirty shell and Python files under lab/bin/ and
+# had a task per experiment shape — bench, sweep, vuramp, profile, capacity, compare —
+# each of which re-implemented start, warm up, sample, measure, stop, cool down around a
+# copy-pasted k6 invocation, and each of which drifted from the others.
+#
+# There is one procedure now. A sweep is a campaign with one repetition and an arm per
+# grid point. A capacity probe is the calibration phase. A VU ramp is the closed model
+# with an arm per level. The experiment is described in campaigns/*.yaml, which is
+# checked in and archived with the result.
 
 vars:
-  # Defaults every task inherits; override on the command line.
-  SCENARIO: '{{.SCENARIO | default "001-template-page"}}'
-  TARGET: '{{.TARGET | default "native"}}'
-  HOST: '{{.HOST | default "local"}}'
-  REPS: '{{.REPS | default "3"}}'
-  # Which artifact is under test. TARGET says how the runtime is deployed;
-  # BUILD says where it came from:
-  #   release  the published distribution — what users run
-  #   dev      built here from a source checkout — unreleased work
-  # A dev build stamps its source commit into the version string, so it never
-  # collides with the release it branched from.
-  BUILD: '{{.BUILD | default "release"}}'
-
-env:
-  # lab/bin scripts resolve everything relative to the repo root.
-  LAB_ROOT: '{{.ROOT_DIR}}'
+  CAMPAIGN: '{{.CAMPAIGN | default "campaigns/smoke-all.yaml"}}'
+  OUT: '{{.OUT | default "campaigns/out"}}'
+  PERF: '{{.ROOT_DIR}}/harness/bin/perf'
 
 tasks:
   default:
@@ -33,247 +25,73 @@ tasks:
     cmds:
       - task --list
 
-  # --- the Go harness (harness/) -------------------------------------------
-  # The replacement for everything under lab/bin/. Both exist until the Go side
-  # reaches parity, at which point lab/ is deleted in one commit rather than
-  # left to drift alongside it.
+  # --- the harness ---------------------------------------------------------
 
-  harness:test:
+  test:
     desc: 'Run the harness test suite — no VM, no network, seconds'
     dir: harness
     cmds:
       - go vet ./...
       - go test -race ./...
 
-  harness:fmt:
+  fmt:
     desc: 'Format the harness'
     dir: harness
     cmds:
       - gofmt -w .
 
-  harness:build:
-    desc: 'Build perf and perf-agent into harness/bin/'
+  build:
+    desc: 'Build perf into harness/bin/'
     dir: harness
     cmds:
       - go build -o bin/perf ./cmd/perf
-      - go build -o bin/perf-agent ./cmd/perf-agent
+      - go build -o bin/fakeocto ./cmd/fakeocto
+
+  # --- running a campaign --------------------------------------------------
 
   plan:
-    desc: 'Show a campaign''s execution order and what it will cost (CAMPAIGN=<file>)'
-    vars:
-      CAMPAIGN: '{{.CAMPAIGN | default "campaigns/regression-050-vs-060.yaml"}}'
+    desc: 'Print what a campaign will do, before it does it. CAMPAIGN=campaigns/x.yaml'
+    deps: [build]
     cmds:
-      - go -C harness run ./cmd/perf plan --campaign {{.ROOT_DIR}}/{{.CAMPAIGN}}
-        --scenarios {{.ROOT_DIR}}/scenarios
+      - '{{.PERF}} plan --campaign {{.CAMPAIGN}}'
 
-  preflight:
-    desc: 'Verify the lab has the tools it needs and print the versions that will be recorded'
+  run:
+    desc: 'Run a campaign. Hours — background it and poll. CAMPAIGN=campaigns/x.yaml'
+    deps: [build]
     cmds:
-      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} BUILD={{.BUILD}}
-        ./lab/bin/preflight.sh
-
-  build:
-    desc: 'Build the runtime from source (OCTO_SRC) and print what will be benchmarked'
-    cmds:
-      # Idempotent: a clean checkout is cached by commit, so re-running is free.
-      # A dirty tree is rebuilt every time, because the only honest assumption
-      # about uncommitted work is that it moved.
-      - BUILD=dev ./lab/bin/build-octo.sh {{.TARGET}} >/dev/null
-      - BUILD=dev ./lab/bin/build-octo.sh {{.TARGET}} --meta
-
-  compare:
-    desc: 'Benchmark the release and a source build of one scenario back to back, and state the delta'
-    cmds:
-      # One invocation rather than two commands: the arms share a host, a thermal
-      # state and a cooldown, which is what makes the delta mean anything.
-      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} REPS={{.REPS}}
-        ORDER='{{.ORDER | default "release dev"}}'
-        COMPARE_COOLDOWN={{.COMPARE_COOLDOWN | default "30"}}
-        TUNED_WORKERS={{.TUNED_WORKERS | default ""}}
-        TUNED_BUFFER={{.TUNED_BUFFER | default ""}}
-        TUNED_POOL={{.TUNED_POOL | default ""}}
-        TUNED_MAXOPENCONNS={{.TUNED_MAXOPENCONNS | default ""}}
-        TUNED_MAXIDLECONNS={{.TUNED_MAXIDLECONNS | default ""}}
-        TUNED_LISTENERS={{.TUNED_LISTENERS | default ""}}
-        ./lab/bin/run-compare.sh
+      - '{{.PERF}} run --campaign {{.CAMPAIGN}} --out {{.OUT}}'
 
   smoke:
-    desc: 'Correctness gate: start the runtime and assert the endpoint serves what it should'
+    desc: 'Every scenario, both arms, eight seconds a cell. Plumbing check, not a result.'
+    deps: [build]
     cmds:
-      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} BUILD={{.BUILD}}
-        VARIANT={{.VARIANT | default "baseline"}} ./lab/bin/smoke.sh
+      - '{{.PERF}} run --campaign campaigns/smoke-all.yaml --out {{.OUT}}'
 
-  bench:
-    desc: 'Full benchmark: baseline vs tuned, N repetitions, resources sampled, report written'
-    cmds:
-      # go-task variables are not exported, so knobs passed as `task bench
-      # TUNED_X=...` have to be forwarded explicitly. The names below cover the
-      # current scenarios; empty values are inert, leaving whatever
-      # integration.yaml declares.
-      #
-      # For a knob not listed here, use the environment form instead — task
-      # inherits the environment, so it reaches the harness unchanged:
-      #     TUNED_CONNMAXLIFETIME=1m task bench SCENARIO=...
-      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} REPS={{.REPS}}
-        BUILD={{.BUILD}}
-        TEST={{.TEST | default "steady"}}
-        TUNED_WORKERS={{.TUNED_WORKERS | default ""}}
-        TUNED_BUFFER={{.TUNED_BUFFER | default ""}}
-        TUNED_POOL={{.TUNED_POOL | default ""}}
-        TUNED_MAXOPENCONNS={{.TUNED_MAXOPENCONNS | default ""}}
-        TUNED_MAXIDLECONNS={{.TUNED_MAXIDLECONNS | default ""}}
-        TUNED_LISTENERS={{.TUNED_LISTENERS | default ""}}
-        CPU_LIMIT={{.CPU_LIMIT | default ""}}
-        MEM_LIMIT={{.MEM_LIMIT | default ""}}
-        ./lab/bin/run-bench.sh
-
-  capacity:
-    desc: 'Ramp the offered rate to find the knee, so STEADY_RATE can be chosen honestly'
-    cmds:
-      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} BUILD={{.BUILD}}
-        REPS=1 TEST=capacity VARIANTS=baseline ./lab/bin/run-bench.sh
-
-  vuramp:
-    desc: 'Closed-model VU sweep — the only test whose numbers are comparable to published benchmarks'
-    cmds:
-      # Closed model on purpose, and only here. See COMPARISON.md: published
-      # figures are almost always throughput against a fixed virtual-user
-      # population, and a "knee point" only exists under that model.
-      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} BUILD={{.BUILD}}
-        VARIANT={{.VARIANT | default "baseline"}}
-        CPU_LIMIT={{.CPU_LIMIT | default ""}}
-        MEM_LIMIT={{.MEM_LIMIT | default ""}}
-        VU_LEVELS={{.VU_LEVELS | default ""}}
-        TUNED_WORKERS={{.TUNED_WORKERS | default ""}}
-        TUNED_BUFFER={{.TUNED_BUFFER | default ""}}
-        TUNED_POOL={{.TUNED_POOL | default ""}}
-        ./lab/bin/run-vuramp.sh
-
-  sweep:
-    desc: 'Grid-search workers/buffer/pool and name the configuration worth publishing as tuned'
-    cmds:
-      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}} BUILD={{.BUILD}}
-        ./lab/bin/sweep.sh
-
-  profile:
-    desc: 'Diagnostic: rank the blocks inside a flow by the time they hold (not a result)'
-    cmds:
-      # Needs a runtime with an admin port, so BUILD=dev by default until one ships.
-      # Writes to diagnostics/, never to results/: watching any block makes the engine
-      # emit an event around every block, so a profiled run is not the same workload.
-      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}}
-        BUILD={{.BUILD | default "dev"}}
-        VARIANT={{.VARIANT | default "tuned"}}
-        BLOCKS='{{.BLOCKS | default "*"}}'
-        PROFILE_RATE={{.PROFILE_RATE | default ""}}
-        PROFILE_DURATION={{.PROFILE_DURATION | default ""}}
-        TUNED_WORKERS={{.TUNED_WORKERS | default ""}}
-        TUNED_BUFFER={{.TUNED_BUFFER | default ""}}
-        TUNED_POOL={{.TUNED_POOL | default ""}}
-        ./lab/bin/run-profile.sh
-
-  probes:
-    desc: 'Start a scenario and print what its admin port reports — probes, metrics, identity'
-    cmds:
-      - SCENARIO={{.SCENARIO}} TARGET={{.TARGET}} HOST={{.HOST}}
-        BUILD={{.BUILD | default "dev"}} ./lab/bin/probes.sh
-
-  footprint:
-    desc: 'Measure only the runtime footprint: artifact size, cold start, idle RSS, idle CPU'
-    cmds:
-      - |
-        set -e
-        set -a; . ./lab/hosts/{{.HOST}}.env; . ./scenarios/{{.SCENARIO}}/scenario.env; set +a
-        out="$(mktemp -t octo-footprint)"
-        BUILD={{.BUILD}} TARGET={{.TARGET}} ./lab/bin/footprint.sh ./scenarios/{{.SCENARIO}} "$out"
-        cat "$out"
-        rm -f "$out"
-
-  report:
-    desc: 'Regenerate REPORT.md for one run (set RUN to the run id)'
-    requires:
-      vars: [RUN]
-    cmds:
-      - python3 ./lab/bin/report.py ./results/{{.RUN}}
-      - python3 ./lab/bin/index.py ./results
-
-  index:
-    desc: 'Regenerate results/index.md from every run.json'
-    cmds:
-      - python3 ./lab/bin/index.py ./results
+  # --- checks --------------------------------------------------------------
 
   verify:
-    desc: 'Check the lab itself: script syntax, Python helpers, and variant rendering'
+    desc: 'Everything that can be checked without starting a runtime'
     cmds:
-      - task: verify:shell
-      - task: verify:python
-      - task: verify:render
+      - task: test
+      - task: verify:terraform
 
-  verify:shell:
-    desc: Syntax-check every shell script in lab/bin
-    silent: true
+  verify:terraform:
+    desc: 'Validate the infrastructure definition'
+    dir: infra/terraform
     cmds:
-      - |
-        set -e
-        for f in lab/bin/*.sh; do bash -n "$f" || exit 1; done
-        echo "✓ shell scripts parse"
+      - terraform fmt -check
+      - terraform init -backend=false -input=false
+      - terraform validate
 
-  verify:python:
-    desc: Byte-compile the Python helpers
-    silent: true
-    cmds:
-      - |
-        set -e
-        python3 -m py_compile lab/bin/*.py
-        echo "✓ python helpers compile"
-
-  verify:render:
-    desc: 'Assert every scenario renders both arms, and that baseline carries no tuning knobs'
-    silent: true
-    cmds:
-      - |
-        set -e
-        for d in scenarios/*/; do
-          src="$d/octo/integration.yaml"
-          [ -f "$src" ] || continue
-          for variant in baseline tuned; do
-            python3 lab/bin/render-config.py "$src" "$variant" >/dev/null || exit 1
-          done
-          echo "✓ $(basename "$d") renders baseline (knobs stripped) and tuned"
-        done
-
-  diff:
-    desc: 'Show what actually differs between the two arms of a scenario'
-    silent: true
-    cmds:
-      - |
-        src=scenarios/{{.SCENARIO}}/octo/integration.yaml
-        diff -u \
-          <(python3 lab/bin/render-config.py "$src" baseline | grep -v '^#') \
-          <(python3 lab/bin/render-config.py "$src" tuned    | grep -v '^#') \
-          || true
-
-  serve:
-    desc: 'Run the scenario locally so you can curl it (Ctrl-C to stop) — not a benchmark'
-    cmds:
-      - |
-        set -e
-        set -a; . ./lab/hosts/{{.HOST}}.env; . ./scenarios/{{.SCENARIO}}/scenario.env; set +a
-        ./lab/bin/stage-config.sh ./scenarios/{{.SCENARIO}} {{.VARIANT | default "baseline"}} .stage/serve
-        echo "▶ serving {{.SCENARIO}} ({{.VARIANT | default "baseline"}}) on ${BASE_URL}${ROUTE}"
-        exec octo run --config .stage/serve
+  # --- housekeeping --------------------------------------------------------
 
   clean:
-    desc: Remove staged configs and scratch state (results are never touched)
+    desc: 'Remove build output'
     cmds:
-      - rm -rf .stage
-      - echo "✓ staging cleaned; results/ untouched"
+      - rm -rf harness/bin
 
-  clean:results:
-    desc: Delete ALL recorded results
-    prompt: This permanently deletes every recorded benchmark result. Continue?
+  clean:campaigns:
+    desc: 'Remove every campaign directory. Destructive, and it asks first.'
+    prompt: 'Delete every campaign under {{.OUT}}?'
     cmds:
-      - rm -rf results
-      - mkdir -p results
-      - python3 ./lab/bin/index.py ./results
-      - echo "✓ results cleared"
+      - rm -rf {{.OUT}}

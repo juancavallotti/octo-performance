@@ -17,14 +17,20 @@ Every result answers four questions:
 ## Quick start
 
 ```bash
-brew install k6 go-task                       # prerequisites
-task preflight                                # verify tooling, print versions
+brew install k6 go-task terraform             # prerequisites
+task test                                     # the harness, no runtime needed, seconds
 
-task smoke SCENARIO=001-template-page         # correctness gate
-task bench SCENARIO=001-template-page         # baseline + tuned, 3 reps
+task plan CAMPAIGN=campaigns/regression-050-vs-060.yaml   # review before it runs
+task run  CAMPAIGN=campaigns/regression-050-vs-060.yaml
 ```
 
-Results land in `results/<run-id>/REPORT.md`. `task --list` shows every entry point.
+A campaign writes one directory under `campaigns/out/`, and one **self-contained
+`report.html`** inside it that leads with a sentence rather than a table. `task --list` shows
+every entry point.
+
+The experiment lives in a checked-in `campaigns/*.yaml`: which scenarios, which arms, how many
+repetitions. A sweep is a campaign with one repetition and an arm per grid point; a capacity
+probe is the calibration phase. There is one procedure, not one program per experiment shape.
 
 ## What gets measured
 
@@ -33,20 +39,32 @@ open-model arrival-rate executors so that a struggling server shows up as latenc
 iterations rather than as quietly reduced load.
 
 **Resource cost** via OS-level sampling of the server process — CPU-seconds, RSS, and the derived
-numbers that actually matter: **CPU-ms per request**, RSS per 1k RPS, requests per CPU-core-second.
+numbers that actually matter: **CPU-ms per request**, RSS per 1k RPS.
+
+**The runtime's own view.** Since 0.5.0 the runtime serves `/metrics`, and every scrape across a
+cell is kept so the pair bracketing the measured window can be differenced. The report shows the
+client's latency and the runtime's side by side — the comparison that would have caught a published
+p95 of 933 ms sitting in the same directory as the runtime's own mean of 0.41 ms.
 
 **Runtime footprint** — artifact size, cold-start time, idle memory, idle CPU. The standing cost of
 the runtime before it serves a single request.
 
-## Targets
+## Where it runs
 
-| Target | What runs |
+| Machine | Runs |
 |---|---|
-| `native` | The standalone `octo` binary on the host. |
-| `docker` | The published `juancavallotti/octo-runtime` image. |
+| runner | the harness and k6, on hardware twice the subject's |
+| subject | `octo`, and nothing else |
+| deps | Postgres and the slow backend, for the two scenarios that need them |
 
-Both are benchmarked because both are how Octo actually gets deployed. On macOS they are not
-directly comparable to each other — see the caveats in [METHODOLOGY.md](METHODOLOGY.md).
+The split is the whole point. With the load generator beside the runtime, the same binary produced
+15,996 req/s and 6,939 req/s on consecutive days — k6 grows its virtual-user pool, the extra
+goroutines take cores from the server, the server slows, and the pool grows further. It is a
+feedback loop, not a constant tax, so it does not cancel out between two arms.
+
+`infra/terraform` stands the three machines up; a campaign runs against them over SSH. The same
+campaign runs entirely on a laptop through the same code path, which is a development loop rather
+than a published result — and every report states which one it was.
 
 ## Tuning knobs
 
@@ -59,7 +77,8 @@ baseline-vs-tuned comparison explores:
 | `buffer` | 64 | Channel depth before publishers block. |
 | `pool` | 8 | Shared worker pool handed to concurrent composites such as `fork`. |
 
-`task sweep` grid-searches them and reports the winner.
+A campaign with an arm per grid point searches them, and the report says which won and by how much
+against the noise band.
 
 **When they matter.** Only once the flow blocks. On a CPU-bound flow ([001](scenarios/001-template-page/),
 [002](scenarios/002-fanout-transform/)) tuning changes nothing measurable — a worker never
@@ -96,10 +115,10 @@ this lab does about each.
 Two things are worth knowing first:
 
 - Published benchmarks are almost always **closed-model** (throughput against a fixed
-  virtual-user population). This lab is open-model everywhere except `task vuramp`, which
-  exists solely to draw a curve on those axes.
-- Only **footprint** and **CPU-ms per request** are defensible comparisons today. Throughput is
-  not, until the lab runs on a Linux x86 host with a separate load generator.
+  virtual-user population). This lab is open-model unless a spec says `model: closed`, and the
+  model is recorded with every run so the two can never share a table.
+- **Throughput becomes defensible only on the split topology.** Numbers produced with the
+  generator beside the runtime are development output, and the report marks them as such.
 
 Building those scenarios also produced a capability checklist: no CSV or XML parser, no policy
 engine, no batch component, no Kafka or JMS connector. That says more about where Octo sits
@@ -108,12 +127,13 @@ than any throughput figure.
 ## Layout
 
 ```
-lab/bin/        the harness
-lab/k6/lib/     shared k6 helpers
-lab/hosts/      one .env per machine that can run the lab
-scenarios/      benchmark scenarios
-results/        immutable run output, never hand-edited
-_config.yml     GitHub Pages, served from the repo root
+harness/            the harness — one Go module, `go test ./...` covers it
+harness/internal/   one package per responsibility, each with its invariants in doc.go
+scenarios/          benchmark scenarios: scenario.yaml + octo/integration.yaml
+campaigns/          checked-in campaign specs; the experiment's intent lives here
+campaigns/out/      campaign output (gitignored)
+infra/terraform/    the three machines a defensible campaign runs on
+docs/               ARCHITECTURE.md and the failure ledger, LEARNINGS.md
 ```
 
 ## Documentation
@@ -122,7 +142,10 @@ _config.yml     GitHub Pages, served from the repo root
   numbers do not mean. Read before interpreting any result.
 - [AGENTS.md](AGENTS.md) — the working contract: golden rules, how to add a scenario, and the
   findings workflow.
-- [results/index.md](results/index.md) — every run recorded so far.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the topology, every interface, and the invariants
+  the tests defend.
+- [docs/LEARNINGS.md](docs/LEARNINGS.md) — the failure ledger. Twenty-six rows, each naming a
+  failure this lab produced and the test that now prevents it. Read before changing the harness.
 - [COMPARISON.md](COMPARISON.md) — what other runtimes have published, and what may honestly be
   concluded from it.
 

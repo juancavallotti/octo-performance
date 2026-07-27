@@ -62,7 +62,7 @@ something waits.
 
 ## Tunables
 
-Declared in `scenario.env` as `TUNABLES`:
+Declared in `scenario.yaml` under `tunables`:
 
 | Knob | Where | What it limits |
 |---|---|---|

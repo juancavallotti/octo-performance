@@ -1,209 +1,254 @@
 # Methodology
 
-Every published result in this repository follows the same shape. This document defines that
-shape, the metrics, and — just as importantly — what the numbers do *not* mean.
+Every published result in this repository follows the same shape. This document defines that shape,
+the metrics, and — just as importantly — what the numbers do *not* mean.
 
 ## The five things every result states
 
-1. **The hardware.** Captured automatically into `env.json`: CPU model, core topology
-   (performance/efficiency split on Apple silicon), RAM, OS version, and for the container target
-   the CPU/memory budget the container runtime was actually given.
+1. **The hardware.** Captured per host: CPU model, core count, page size, kernel, machine type, and
+   the clock offset between the machines involved.
 2. **The integration under test.** Described in the scenario's `README.md`: which connectors and
    blocks it exercises, the request shape, the response shape, and why it is worth measuring.
-3. **The out-of-the-box result.** Octo run with no tuning at all.
-4. **The optimized result.** The same integration with `workers`, `buffer`, and `pool` chosen
-   deliberately, usually via `make sweep`.
-5. **The cost.** CPU and memory consumed to reach that throughput, plus the runtime's static
-   footprint.
+3. **The out-of-the-box result.** The runtime with every tunable stripped, so it falls back to
+   whatever it actually ships with.
+4. **The optimized result.** The same integration with the knobs written as literals.
+5. **The cost.** CPU-ms per request and peak RSS, alongside throughput. Speed with no cost attached
+   is half a result.
 
-And underpinning all of it: **the version under test**, so that a future run can be compared
-against this one and a regression is visible.
+And underpinning all of it: **the version under test**, checked against what the running process
+reported about itself.
 
-## Variants
+## Arms
 
-| Variant | Config | Meaning |
+| Arm | Config | Meaning |
 |---|---|---|
-| `baseline` | `octo/baseline.yaml` | No `workers`, `buffer`, or `pool` keys present. What a user gets by default. |
-| `tuned` | `octo/tuned.yaml` | Same flow, with the three knobs set explicitly. |
+| `baseline` | every tunable stripped | What a user gets by default. |
+| `tuned` | the same flow with knobs written as literals | What deliberate configuration buys. |
 
-Octo's documented defaults are `workers: 8`, `buffer: 64`, `pool: 8`. `tuned.yaml` declares those
-same values as its `env` defaults, which gives a free **control run**: tuned with no environment
-overrides should be statistically indistinguishable from baseline. If it is not, the
-parameterisation itself is costing something and the comparison is compromised.
+Both are derived from **one** checked-in `integration.yaml`. Two checked-in configs would drift, and
+the drift would look like a result. The renderer re-parses its own output and refuses a baseline that
+still declares a tunable — an unverified baseline is indistinguishable from a verified one until it
+silently reports the wrong default months later.
 
-The harness diffs the two configs and aborts if they differ anywhere other than the tuning knobs
-and their `env` declarations.
+Because provenance cannot rest on byte-exactness (the YAML is re-emitted with the library's own
+indentation), each cell archives `config.render.json`: source digest, selector, node path, before →
+after, and source line. That says *what changed and where*, which is strictly more than the archived
+file alone ever conveyed.
 
-## Targets
+## Load model
 
-| Target | What it is |
-|---|---|
-| `native` | The standalone distribution — a single Go binary run directly on the host. |
-| `docker` | The published runtime image `juancavallotti/octo-runtime`, config bind-mounted at `/etc/octo/integrations`. |
+Open, everywhere, unless a spec says otherwise — and the model is **recorded** with every run rather
+than inferred later, so an open-model and a closed-model number can never end up in the same table.
 
-Both are benchmarked because both are how people actually deploy. They are **not** directly
-comparable to each other on macOS (see Caveats).
+Under a closed model (a fixed virtual-user population looping), a slow server simply receives fewer
+requests, and throughput self-limits into a number that looks stable while hiding the problem. Under
+an open model, load is offered at a fixed rate regardless of how the server is coping, so degradation
+surfaces honestly as rising latency and non-zero `dropped_iterations`.
 
-## Tests
+`model: closed` exists for cross-vendor comparability only. See [COMPARISON.md](COMPARISON.md).
 
-All three are k6 scripts sharing `lab/k6/lib/`.
+## The rate is measured, not remembered
 
-**`smoke`** — 1 VU, ~30 iterations. Asserts status 200, `Content-Type: text/html`, and that
-template interpolation actually happened (the path parameter appears in the body). This is a
-correctness gate, not a measurement. A load run whose smoke did not pass is discarded.
+Each campaign opens with a **capacity ramp** per scenario: a staircase from a start rate to a peak,
+each rung held for a dwell and measured only over the dwell. A rung is *held* when it achieved what
+was offered, shed no iterations, failed nothing, and stayed within a factor of the first rung's mean
+latency — and when it is not held, which of those four gave way is named. A bend in a curve is not a
+diagnosis; "the generator shed 9,161 iterations" is.
 
-**`capacity`** — `ramping-arrival-rate`, climbing request rate until p95 latency crosses the
-threshold or k6 starts dropping iterations. Locates the knee of the curve, which is how the
-steady-state rate for a scenario gets chosen.
+- A ramp that folds over yields a **knee**.
+- A ramp that holds every rung yields a **lower bound**, and the report says which it got. Calling a
+  bound a measurement is how a campaign ends up running at half of a ceiling that was never located.
 
-**`steady`** — `constant-arrival-rate` at a fixed offered rate for a fixed duration. This is the
-headline comparison.
+The chosen rate is a stated fraction of the knee (default 50%), and **every arm of that scenario runs
+at it**. An arm that cannot hold the shared rate then produces a saturation finding rather than a
+quietly smaller number.
 
-The arrival-rate executors are an **open model** and that choice is deliberate. Under a closed
-model (fixed VUs looping), a slow server simply receives fewer requests, and throughput
-self-limits into a number that looks stable while hiding the problem. Under an open model, load is
-offered at a fixed rate regardless of how the server is coping, so degradation surfaces honestly
-as rising latency and non-zero `dropped_iterations`.
-
-Load tests set `discardResponseBodies: true` to keep the generator cheap; k6 still accounts for
-bytes received. Smoke does not, because it inspects the body.
+The ramp itself is warmed first, by a discarded rung at the start rate. Without it the first rung —
+the reference every later rung's latency is compared against — measures a cold runtime and a
+generator still allocating its virtual-user pool. That is not hypothetical: it read 11.57 ms against
+a true 0.44 ms and chose a rate 3% of capacity. See [L26](docs/LEARNINGS.md).
 
 ## Run procedure
 
-Per variant, per repetition:
+Per cell — one scenario, one arm, one repetition:
 
-1. Stage exactly one config variant into a clean directory.
-2. Start the target. Poll the real route until it returns 200 — that latency is recorded as
-   **cold start**.
-3. Run a warm-up k6 pass and discard it. This pays for Go's runtime warm-up, connection
-   establishment, and any lazy initialisation, so the measured window is steady-state.
-4. Begin 1 Hz resource sampling of the server process (or container).
-5. Run the k6 test.
-6. Stop sampling, stop the target, capture whole-process CPU and peak RSS totals.
+1. Build the request body, hash it, archive it. What was offered is as much a part of a result as
+   what came back.
+2. Render this arm's config and stage the whole integration directory where the subject will read it.
+3. Ask the artifact what flags it accepts. Never infer that from a version string.
+4. Assert the workload port is free. A stale process answers 404 quickly, which reads as excellent
+   throughput.
+5. Start the runtime, recording the exact argv.
+6. Poll until ready, confirming that a detected admin port actually answers. Detection that is wrong
+   in the optimistic direction is the dangerous one. That latency is recorded as **cold start**.
+7. Ask the running process what it is, and check it against what was started.
+8. Start every collector **before** the window opens. A collector that starts when the measurement
+   starts cannot answer whether the measurement was steady.
+9. Warm-up pass — kept and labelled, never silently discarded.
+10. The measured pass.
+11. Stop the collectors, then the runtime.
+12. **Choose the window from the data.** See below.
+13. Window everything against the interval that was chosen: the subject's counters, the runtime's own
+    exposition, the client's series.
+14. Gate it. Gates read; they never mutate a measurement and never abort a campaign.
+15. Write it all down, atomically.
+16. Cool down, so the next cell does not inherit this one's thermal state.
 
-`REPS=3` by default. The report shows the **median** repetition by achieved throughput; every
-repetition's artifacts are kept so the spread can be inspected.
+Five repetitions by default, and **every one is kept and shown**. The report draws each repetition as
+a dot: with n=5 the honest chart is the five points, because a reader can then see whether a delta
+comes from a tight cluster or from two runs that disagree.
+
+## The measured window is detected, not assumed
+
+The old lab slept ten seconds and called the rest steady. This one buckets the client's throughput
+into one-second bins and accepts the earliest suffix whose drift across the window and whose
+coefficient of variation are both inside bound, with enough duration left to be worth measuring.
+
+It corroborates with the subject's CPU rate where the sampler can actually see it — throughput can
+plateau while the runtime is still warming, because the offered rate caps what the generator delivers
+and a saturated server looks identical to a settled one from the client alone. Where the sampler is
+coarse, the weaker claim is made explicitly rather than a window being rejected for want of evidence.
+
+No window is found ⇒ the gate fires. There is no silent fallback. Both the detected window and the
+fixed-offset window the old lab would have used are recorded, so detection can be audited across a
+campaign rather than trusted.
+
+## Ordering
+
+Arms rotate within each repetition, so over n repetitions each arm occupies each position exactly
+once. `order: blocked` is expressible but requires a stated reason that the report prints.
+
+This is not a preference. The old harness ran all of A then all of B, which gave every published
+"Gain" the same confound: time-in-session and chassis temperature. `stats.OrderEffect` now regresses
+each metric against execution position and publishes the slope and r², which turns "we interleaved,
+so trust us" into a number.
+
+Every cell is followed by a cooldown. A minute at 24,000 req/s leaves on the order of a million
+sockets working through `TIME_WAIT`, and a chassis that has been at 300% CPU is thermally a different
+machine from a cold one.
 
 ## Metrics
 
-### Throughput and latency (from k6)
+### Throughput and latency (client side, from k6)
 
 | Metric | Definition |
 |---|---|
-| Offered rate | Requests per second k6 was instructed to generate. |
-| Achieved RPS | `http_reqs / duration`. Below the offered rate means the server could not keep up. |
-| `dropped_iterations` | Iterations k6 could not start because the VU pool was saturated. **Non-zero means the result is a saturation measurement, not a latency measurement.** |
-| `http_req_duration` | p50 / p90 / p95 / p99 / max. Full client-observed request time. |
-| `http_req_waiting` | Time to first byte after the request was written — the closest available proxy for server-side think time, since it excludes DNS, connect, and TLS. |
-| `http_req_failed` | Error rate. Any non-zero value on this workload demands an explanation before the run is published. |
-| `data_received` | Throughput in bytes/s, a sanity check that responses are the expected size. |
+| Offered rate | Requests per second the generator was instructed to produce. |
+| Achieved RPS | Below the offered rate means the server could not keep up. |
+| `dropped_iterations` | Iterations the generator could not start. **Non-zero means the result is a saturation measurement, not a latency measurement.** Absent from a summary when zero — absent is not zero. |
+| `http_req_duration` | p50 / p95 / p99 / max, full client-observed request time. |
+| `http_req_waiting` | Time to first byte after the request was written. |
+| `http_req_failed` | Any non-zero value demands an explanation before publication. Fast failures look exactly like fast successes in a throughput number. |
+| `vus_max` against pre-allocated | How far the generator's pool grew. This is the number that discriminates a healthy run from a collapsed one, and in the old lab it appeared in no result file. |
 
-### Resource utilisation (OS-level, server side)
+The pool is sized in Go by Little's law from the **tail** latency, not the median, and the sizing is
+*recorded*. In the old lab it was computed inside a k6 script that nobody archived — so the one value
+that explains the 15,996-against-6,939 incident could not be recovered afterwards.
 
-CPU is measured by differentiating cumulative process CPU time between samples rather than reading
-an instantaneous percentage. On macOS, `ps -o %cpu` reports a decaying average over the process
-lifetime, which would systematically understate a short benchmark window; `cputime` deltas give
-exact CPU-seconds consumed per interval. Whole-run totals come from `/usr/bin/time -l` (macOS) or
-`-v` (Linux), which also yields an authoritative maximum RSS.
+### The runtime's own view (from `/metrics`, 0.5.0 and later)
 
-For the container target the equivalent data comes from `docker stats`.
+Every scrape is kept, not two snapshots, and the two bracketing the **detected** window are the ones
+differenced. Once the window is detected rather than slept through, a pair captured at the edges of
+the load pass brackets the wrong interval.
+
+`octo_flow_messages_total` by outcome, and `octo_flow_duration_seconds` as a histogram. The
+histogram's lowest bucket edge is 5 ms and most flows finish in microseconds, so a quantile inside
+that bucket is returned as a **bound** — `ok=false, bound=below, edge=0.005` — rather than as an
+interpolated number that was never measured.
+
+### Resource utilisation (OS level, subject side)
+
+CPU is measured by **differentiating cumulative process CPU time** between samples, never by reading
+an instantaneous percentage: a decaying average over the process lifetime systematically understates
+a short benchmark window.
 
 | Metric | Definition |
 |---|---|
-| Total CPU-seconds | `user + sys` for the whole server process lifetime. |
-| Mean / peak CPU % | From the 1 Hz series. 100% = one fully saturated core. |
-| Mean / peak RSS | Resident set size from the same series, plus the authoritative peak. |
-| RSS drift | Last sample − first sample. Sustained positive drift across reps is a leak signal. |
+| Mean CPU % | From the 1 Hz series over the detected window. 100% = one saturated core. |
+| Peak / drift RSS | Sustained positive drift across repetitions is a leak signal. |
+| Open descriptors, threads, context switches | Voluntary against involuntary distinguishes a process that blocked from one that was starved of a core. |
 
 ### Derived efficiency numbers
 
 These are the point of the exercise. Throughput alone says nothing about whether it was bought
 cheaply.
 
-- **CPU-ms per request** = `total_cpu_seconds × 1000 / http_reqs`. The headline efficiency number
-  and the most portable one across hardware.
-- **RSS per 1k RPS** = `peak_rss / (achieved_rps / 1000)`. How much memory a unit of throughput costs.
-- **Requests per CPU-core-second** = `http_reqs / total_cpu_seconds`. The reciprocal view, useful
-  when reasoning about capacity planning.
+- **CPU-ms per request** — the headline efficiency number and the most portable across hardware.
+- **RSS per 1k RPS** — how much memory a unit of throughput costs.
+- **Cold start** — process start until the route first answers.
 
-### Runtime footprint
+## Client against server, side by side
 
-Measured once per target per run, independent of variant — the standing cost of the runtime before
-it serves anything.
+This comparison is the reason the report exists in its current shape. The old lab published a client
+p95 of **933.01 ms** as the runtime's latency while the runtime's own mean flow duration, sitting in
+the same result directory, was **0.41 ms**. Neither number was wrong; showing only one of them was.
 
-| Metric | Definition |
+Every scenario's report shows both and states the gap: what the client saw, what the runtime said,
+and the fact that the difference is queueing at the generator rather than work in the runtime.
+
+## Validity is a value
+
+Every cell carries a verdict. Invalid cells are excluded from every aggregate and listed, struck
+through, in the report's validity ledger — visible, never silently dropped.
+
+| Gate | Rejects |
 |---|---|
-| Artifact size | Binary size on disk, or image size and digest for the container target. |
-| Cold start | Process/container start until the route first answers 200. |
-| Idle RSS | Resident memory after a 30 s idle hold post-readiness. |
-| Idle CPU % | Mean CPU over that same idle hold. Should be ~0; anything else is a finding. |
+| generator headroom | Runner CPU over ceiling, or a pool far above its allocation — the colocation artifact |
+| error rate | Non-zero `http_req_failed` |
+| saturation | Achieved below offered, or dropped iterations, or a pool that disagrees with a sibling **of the same scenario** by more than a factor |
+| steady state | No window could be detected |
+| identity | The running process is not the version the harness intended to start |
+| capability | An admin port was detected and did not answer |
+| clock | The offset between runner and subject drifted during the cell |
 
-## Cooldown between runs
-
-Every measured run is followed by a cooldown (`COOLDOWN_SECONDS`, default 15) before
-the next one starts. This is not a courtesy — it is load-bearing.
-
-A minute at 24,000 req/s leaves on the order of a million sockets working through
-`TIME_WAIT`, and a laptop chassis that has been sitting at 300% CPU is thermally a
-different machine from a cold one. A run that starts in that state inherits both,
-and the resulting ordering artifacts are large — easily large enough to look like a
-real difference between configurations that are in fact identical.
-
-Two defences, both mandatory:
-
-1. **Cool down between runs**, so each starts from a comparable state.
-2. **Alternate and repeat** when comparing two configurations, rather than running
-   all of A then all of B. A difference that survives interleaving is a difference;
-   one that tracks position in the sequence is an artifact.
-
-This is also why a single run is never a result: see repetitions and medians above.
+Gates ship in **observe mode**: evidence recorded unconditionally, nothing escalating past `suspect`,
+and a gate-calibration table in every report showing how often each fired. Thresholds tighten from
+that data rather than from a guess — nobody has measured the right runner-CPU ceiling yet, because
+the old lab never measured one.
 
 ## Caveats
 
 Stated plainly, because a benchmark that hides its limitations is marketing.
 
-- **Docker on macOS is not measuring only Octo.** Docker Desktop runs containers inside a Linux VM
-  and publishes ports through a userland proxy. The container target therefore measures that
-  network path as much as it measures the runtime. Baseline↔tuned within the container target is
-  still perfectly valid — the proxy is constant across both. Native-vs-container is indicative
-  only.
-- **`docker stats` understates true host cost.** It accounts for the container's own usage and not
-  the Docker Desktop VM overhead required to run it. This is why the container sometimes reports a
-  *lower* CPU-ms/request than native (scenario 002: 0.437 against 0.485; scenario 006: 0.311
-  against 0.347). That is an accounting boundary, not an efficiency win — the port proxy's work is
-  real and simply falls outside the cgroup being measured.
-- **A containerised runtime reaches host dependencies by a longer road, and it shows.** Scenarios
-  003 and 005 talk to something on the host, so the container has to address it as
-  `host.docker.internal`: out through the VM's NAT, onto the host, and back in through a published
-  port. For a flow doing three database round trips per request that path dominates. Scenario 003
-  holds 1,500 req/s at a 1.3 ms p95 natively and cannot hold it at all in a container
-  (1,270 req/s, 4,147 ms p95), and raising `workers` there makes it *worse* rather than better,
-  because the extra concurrency piles onto the constrained path rather than onto Postgres.
-  **Read that as a property of this measurement setup, not of the runtime.** The comparable
-  arrangement is container-to-container on a shared Docker network, which the harness does not yet
-  do. Until it does, cross-target comparison for scenarios with host-side dependencies (003, 005)
-  is not merely indicative — it is misleading, and the container column for 003 should be ignored.
-- **The load generator shares the host with the server.** k6 and Octo compete for the same cores.
-  This is a recorded known limitation, not a controlled variable. It compresses the absolute
-  ceiling; it does not invalidate baseline↔tuned comparison, since both variants pay it equally.
-  Splitting the generator onto a separate machine is supported by design (`BASE_URL` and host
-  profiles) but not yet exercised.
-- **Apple silicon is heterogeneous and thermally variable.** The M1 Pro has 8 performance and 2
-  efficiency cores, and sustained load on a laptop drifts as the chassis heats. Hence repetitions
-  and medians, and hence a preference for comparing runs captured in the same session.
-- **These are single-instance numbers.** One Octo process serving one integration. Nothing here
-  says anything about horizontal scaling or the Kubernetes platform deployment.
+- **A colocated generator makes results bimodal, and no gate can subtract it.** k6 and the runtime on
+  one machine produced 15,996 req/s and 6,939 req/s from a byte-identical binary a day apart — 2.3×
+  on throughput, 1,580× on p95 — with `vus_max` at 1,600 on the healthy run and 7,113 on the
+  collapsed one. The generator grows its pool, the extra goroutines take cores from the server, the
+  server slows, the pool grows further. It is a feedback loop, not a constant tax, so it does **not**
+  cancel between two arms. Every report states whether the campaign was colocated; a colocated
+  campaign is a development loop, not a published result.
+- **A dependency that shares the subject's cores is folded into the subject's cost.** Scenarios 003
+  and 005 reached theirs through `host.docker.internal`, and for a flow doing three database round
+  trips per request that path dominated: 1,500 req/s at 1.3 ms p95 natively against 1,270 req/s at
+  4,147 ms in a container, with more workers making it *worse*. That is a property of the measurement
+  setup, not of the runtime. Dependencies belong on their own host, reached over ordinary networking.
+- **A laptop is thermally variable.** Sustained load drifts as the chassis heats, which is why
+  repetitions rotate and why every cell is followed by a cooldown.
+- **These are single-instance numbers.** One process serving one integration. Nothing here says
+  anything about horizontal scaling.
+- **Whole-lifetime `rusage` is unavailable over SSH** and is reported absent rather than filled in
+  with the transport's own. The cost denominator comes from differencing the subject's cumulative CPU
+  counter, accurate to the sampling interval.
 
 ## Reading a report
 
-`REPORT.md` leads with the environment and version under test, then the baseline↔tuned comparison
-table, then resource cost, then footprint. When scanning:
+It leads with a **sentence**, not a table. A reader who stops at the top still has the answer.
 
-1. Check `dropped_iterations` and `http_req_failed` first. If either is non-zero, the latency
-   numbers describe a saturated system and the rest of the table means something different than it
-   appears to.
-2. Check achieved RPS against offered rate. A gap means saturation regardless of what the latency
-   percentiles say.
-3. Only then read latency, and read p95/p99 rather than the mean.
-4. Finally read CPU-ms/request. A tuned config that improves latency while burning materially more
+Then, in order: the regression matrix with every delta labelled and every median carrying its spread
+and its n; per-scenario detail with client against server latency side by side; how each rate was
+chosen; the validity ledger; gate calibration; provenance.
+
+When scanning:
+
+1. **Read the verdict sentence, and read it carefully.** "No regression was found" and "nothing could
+   be established" are different statements, and only the first is a result. A campaign whose
+   comparisons all declined for want of evidence says so explicitly.
+2. **Check the validity ledger.** Cells excluded by a gate contributed to nothing.
+3. **Check how the rate was chosen.** A measured knee and a declared rate mean different things, and
+   a lower bound is not a knee.
+4. **Read latency only after achieved-against-offered and the drop count.** A gap there means the
+   latency percentiles describe a saturated system.
+5. **Read the spread, not only the median.** A delta inside its noise band is labelled noise and is
+   not a result no matter how large the percentage looks.
+6. **Finally read CPU-ms per request.** A config that improves latency while burning materially more
    CPU per request has traded, not won.

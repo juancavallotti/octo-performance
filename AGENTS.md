@@ -1,183 +1,179 @@
 # AGENTS.md — working contract for the Octo performance lab
 
-This repository benchmarks [Octo](https://juancavallotti.github.io/octo/), a Go integration
-runtime that executes YAML-defined flows. Its purpose is to produce **reproducible, comparable,
+This repository benchmarks [Octo](https://juancavallotti.github.io/octo/), a Go integration runtime
+that executes YAML-defined flows. Its purpose is to produce **reproducible, comparable,
 version-stamped** performance numbers so that regressions are caught and tuning decisions are
 evidence-based.
 
-Read [METHODOLOGY.md](METHODOLOGY.md) before interpreting or producing any result.
+Read [METHODOLOGY.md](METHODOLOGY.md) before interpreting or producing any result, and
+[docs/LEARNINGS.md](docs/LEARNINGS.md) before changing the harness. The learnings ledger is not
+background reading: every row is a failure this lab actually produced, and every row names the test
+that now prevents it.
 
 ## Repo map
 
 | Path | What it is |
 |---|---|
-| `lab/bin/` | The harness. Shell scripts + Python helpers (render, sample, report, index). No dependencies beyond coreutils, `python3`, `curl`, `k6`, and optionally `docker`. |
-| `lab/k6/lib/` | Shared k6 helpers: executor/threshold presets and the `handleSummary` that writes `summary.json`. |
-| `lab/hosts/` | One `.env` per machine that can run the lab. Defines `HOST_PROFILE` and `BASE_URL`. |
-| `scenarios/<id>-<slug>/` | One benchmark scenario: its Octo configs, its template/data assets, its k6 tests, and a README describing the integration. |
-| `results/<run-id>/` | Immutable run output. Never hand-edited. |
-| `_config.yml`, `index.md` | GitHub Pages. The site is served from the repo **root**, so `results/` and `scenarios/` publish as they are — there is no copy step and no second source of truth for a number. |
-
-A run id is `<date>-<host-profile>-<scenario>-<target>-v<octo-version>`, e.g.
-`2026-07-25-m1pro-16gb-001-template-page-native-v0.4.2`.
+| `harness/` | The harness. One Go module, `perf` and two helper binaries. `go test ./...` covers it. |
+| `harness/internal/` | One package per responsibility, each with a `doc.go` stating its single job and its invariants. |
+| `scenarios/<id>-<slug>/` | One workload: `scenario.yaml`, `octo/integration.yaml`, assets, and a README describing the integration. |
+| `campaigns/*.yaml` | Checked-in campaign specs. A campaign spec **is** the experiment's intent. |
+| `campaigns/out/` | Campaign output. Gitignored; publish by copying, never by editing. |
+| `infra/terraform/` | The three machines a defensible campaign runs on. |
+| `docs/ARCHITECTURE.md` | Topology, package tree, every interface, and the invariants the tests defend. |
+| `docs/LEARNINGS.md` | The failure ledger. New failure ⇒ new row **and** new test. |
 
 ## Golden rules
 
 These are not style preferences. Breaking one invalidates the numbers.
 
-1. **No version, no result.** Every run writes `env.json` recording the Octo version under test
-   (and, for the container target, the image digest). A result that cannot be attributed to a
-   version cannot be used for regression tracking.
+1. **No version, no result.** Every cell records the artifact's sha256, its probed capabilities, and
+   what the running process said it was via `octo_build_info` — which is checked against what the
+   harness intended to start. A result that cannot be attributed to a version cannot be used for
+   regression tracking.
 2. **One scenario, one config.** A scenario declares exactly one `octo/integration.yaml` and names
-   its knobs in `scenario.env` as `TUNABLES`. Both arms are *derived* from that file by
-   `lab/bin/render-config.py`, so they cannot drift: `baseline` has every tunable stripped,
-   `tuned` has them rewritten to the requested values. Prefer plain integers: the rendered file
-   is archived beside the result as `config.yaml`, and a literal there is provenance where a
-   `${ENV}` placeholder would only record that the value came from somewhere.
-3. **Baseline strips, it never hardcodes.** Writing `workers: 8` into a baseline config would
-   freeze it at today's default and silently stop tracking the real one. Stripping the key makes
-   the runtime fall back to whatever it actually ships with, so if a future Octo version changes a
-   default, the baseline arm follows it — which is exactly the regression this lab exists to catch.
-   `render-config.py` verifies the rendered baseline declares no tunable.
-4. **Never hand-edit anything under `results/`.** If a number looks wrong, re-run. Editing results
+   its knobs in `scenario.yaml` under `tunables`. Both arms are *derived* from that file, so they
+   cannot drift.
+3. **Baseline strips, it never hardcodes.** Writing `workers: 8` into a baseline would freeze it at
+   today's default and silently stop tracking the real one. Stripping the key makes the runtime fall
+   back to whatever it actually ships with, so if a future version changes a default the baseline arm
+   follows it — which is exactly the regression this lab exists to catch. `render.Verify` re-parses
+   its own output and refuses a baseline that still declares a tunable.
+4. **Never hand-edit a campaign directory.** If a number looks wrong, re-run. Editing results
    destroys the only thing that makes them worth publishing.
-5. **Compare within a target.** `native` vs `docker` numbers on macOS are dominated by Docker
-   Desktop's VM and userland port proxy. Baseline↔tuned within one target is the real comparison;
-   cross-target is indicative only and must be labelled as such.
-6. **Smoke must pass before a load run counts.** A fast server returning 404s is not a result.
-7. **Three reps minimum, report the median, keep every rep.** Single runs on a thermally
-   throttling laptop are noise.
-8. **Report cost, not just speed.** Throughput without CPU-ms/request and peak RSS is an
-   incomplete result. The question is never "how fast" alone — it is "how fast, for what".
+5. **Interleave, always.** Arms rotate within each repetition, so no arm systematically occupies the
+   position that inherits the most thermal and socket state. `order: blocked` exists but requires a
+   stated `orderReason`, which the report prints in red. The old harness ran all of A then all of B,
+   which confounded every published "Gain" with time-in-session.
+6. **Five repetitions, median with its spread, keep every one.** There is no code path in this
+   harness that prints a point estimate without its dispersion and its n. The old index published 61
+   rows of bare medians.
+7. **A delta inside the noise band is not a result.** It is labelled noise and shown with the band it
+   was measured against.
+8. **Report cost, not just speed.** Throughput without CPU-ms/request and peak RSS is incomplete. The
+   question is never "how fast" alone — it is "how fast, for what".
 9. **Nothing runs in the hot path that is not part of the scenario.** No `log` blocks inside the
    measured flow unless logging is the thing being measured.
+10. **An absent measurement is not a zero.** Every optional number in the result model carries its own
+    `Present` flag. `dropped_iterations` is missing from a k6 summary when it is zero *and* when the
+    field moved; a histogram lookup that matches nothing looks exactly like a runtime that served no
+    traffic. Both have cost this lab a day.
 
-## Running the lab
-
-Entry points are [go-task](https://taskfile.dev) tasks, matching the convention used in the `octo`
-repo. `task --list` shows them all.
-
-```bash
-task preflight                                       # check tooling, print versions
-task verify                                          # check the lab itself, no runtime needed
-task smoke    SCENARIO=001-template-page             # correctness gate
-task capacity SCENARIO=001-template-page             # find the knee
-task sweep    SCENARIO=001-template-page             # grid search the tuning knobs
-task bench    SCENARIO=001-template-page             # baseline + tuned, REPS=3
-task build    TARGET=native                          # build the runtime from source
-task compare  SCENARIO=001-template-page             # release vs source build, back to back
-task report   RUN=<run-id>                           # regenerate a REPORT.md
-task index                                           # regenerate results/index.md
-```
-
-Common variables: `TARGET=native|docker`, `BUILD=release|dev`, `REPS=1`, `HOST=local`,
-`TEST=steady|capacity`, `TUNED_WORKERS=16 TUNED_BUFFER=256 TUNED_POOL=8`,
-`OCTO_IMAGE=juancavallotti/octo-runtime:0.4.3`, `COOLDOWN_SECONDS=15`. A knob the Taskfile does
-not forward works as an environment prefix, since task inherits the environment:
-`TUNED_MAXOPENCONNS=64 task bench SCENARIO=...`.
-
-## Two axes: TARGET and BUILD
-
-`TARGET` says how the runtime is **deployed** — `native` for the binary on the host, `docker` for
-the container image. `BUILD` says where the artifact **came from**:
-
-| `BUILD` | Native target | Docker target |
-|---|---|---|
-| `release` | `OCTO_BIN`, else `PATH` | `OCTO_IMAGE` |
-| `dev` | built from `OCTO_SRC` (default `../octo`) | image built from `$OCTO_SRC/runtime/Dockerfile` |
-
-All four combinations work. `BUILD=dev` builds before the run, caching a clean checkout by commit
-so re-running costs nothing; a dirty tree is rebuilt every time, because the only honest
-assumption about uncommitted work is that it moved.
-
-**Why a dev build gets its own version string.** The source declares the same version constant as
-the last release, so `octo version` cannot tell them apart — a dev run would take the release's
-run id, collide with it, and be filed as a repeat measurement. A dev build is therefore stamped
-`0.4.3-dev.<commit>` (plus `.dirty`), and `env.json` carries the full source provenance: path,
-commit, branch, subject, tree state, Go version, build tags.
-
-The native dev build carries no build tags and the container dev build carries `k8s`, matching
-how each artifact actually ships. That is not a detail: the tag decides which services provider
-is compiled in, so building both the same way would compare against something nobody runs.
+## Running a campaign
 
 ```bash
-task bench SCENARIO=005-http-proxy BUILD=dev           # measure unreleased work
-task compare SCENARIO=005-http-proxy                   # and against the release, back to back
-OCTO_SRC=~/src/octo task build TARGET=docker           # a checkout somewhere else
+task build                                            # build ./harness into ./bin
+perf plan --campaign campaigns/regression-050-vs-060.yaml   # review before it runs
+perf run  --campaign campaigns/regression-050-vs-060.yaml
 ```
 
-`task compare` runs both arms in one invocation on purpose: they then share a host, a thermal
-state and a cooldown. Two runs a day apart on a laptop that throttles are not a before-and-after.
-Its report states the rep-to-rep spread within each arm and labels any delta smaller than that as
-noise, so a 3% difference is never presented as an improvement.
+`perf plan` prints the exact ordered cell list, the rate each scenario will use, and the estimated
+wall clock. An eight-hour campaign gets reviewed as a plan rather than discovered as a mistake.
 
-**A dev result is not a published result.** It describes code that has not shipped, and
-`REPORT.md` says so. A dirty-tree result is not reproducible by anyone and is marked more
-strongly. Quote release numbers; use dev numbers to decide whether a change worked.
+`perf run` writes `plan.json` before anything starts, then a directory per cell, then
+`campaign.json` and `report.html`. Ctrl-C stops at a cell boundary. It takes hours — run it in the
+background and poll rather than blocking an interactive session on it.
 
-**Benchmarking a specific release.** `OCTO_BIN` points the native target at a particular binary,
-which is how two releases get compared on the same host:
+**On the real topology**, the subject is another machine:
 
 ```bash
-OCTO_BIN=~/.octo-versions/octo-0.4.2 task bench SCENARIO=001-template-page
-OCTO_BIN=~/.octo-versions/octo-0.4.3 task bench SCENARIO=001-template-page
+perf run --campaign campaigns/regression-050-vs-060.yaml \
+  --subject-ssh perf@10.20.0.3 --subject 10.20.0.3 \
+  --subject-dir /srv/perf --versions /srv/perf/octo-versions \
+  --deps-ssh perf@10.20.0.4 --deps 10.20.0.4
 ```
 
-Each run stamps its own version into `env.json` and the run id, so `results/index.md` lines them
-up in the regression view. Prefer the released tarball from GitHub over `go install` when the
-question is "how does the shipped distribution behave" — they are not the same binary (0.4.3 is
-46 MB from the release, 65 MB built locally).
+Everything above `internal/exec.Runner` is unchanged by that flag: the same procedure runs against a
+local subject in a `go test` in seconds, and against a VM for a real result. The fast loop therefore
+tests the slow one.
 
-The tasks are a thin interface; the work lives in `lab/bin/` because it involves background
-process supervision, signal handling, and PID discovery — things that belong in scripts rather
-than in YAML.
+## The campaign spec is the experiment
 
-`task bench` takes minutes. Run it in the background and poll rather than blocking an interactive
-session on it.
+```yaml
+name: regression-050-vs-060
+question: "Did 0.6.0 regress against 0.5.0 on any scenario?"
+
+scenarios: [001-template-page, 002-fanout-transform]
+reps: 5
+
+arms:
+  - name: "0.5.0"
+    binary: { version: "0.5.0" }
+    config: { mode: baseline }
+  - name: "0.6.0"
+    binary: { version: "0.6.0" }
+    config: { mode: baseline }
+```
+
+Intent lives in a checked-in file, not in a directory name. The old lab encoded it as free text in
+run ids — `-mON`, `-probesonly`, `-metricson` — decoded nowhere except four lines of a log.
+
+A sweep is `reps: 1` with an arm per grid point. A capacity probe is the calibration phase. A VU ramp
+is the closed model with an arm per level. There are no other programs.
+
+## Rates are measured, never remembered
+
+A scenario says `calibrate: true` and declares a ramp. Each campaign opens with a capacity probe per
+scenario, finds the knee, and runs **every arm at the same measured fraction of it** — so an arm that
+cannot hold the rate produces a saturation finding rather than a quietly lower number.
+
+The old lab carried `STEADY_RATE=16000`, calibrated once on a laptop on 2026-07-25. By the next day
+every cell at that rate was shedding 260,000–630,000 iterations. A rate calibrated once is a constant
+in the code and a variable in reality.
+
+Scenario 005 declares a fixed rate on purpose, and says why in the file: its result *is* that the two
+arms cannot both hold 800 req/s.
+
+## Validity is a value, not a warning
+
+Every cell gets a verdict. Invalid cells are excluded from every aggregate and listed, struck
+through, in the report's validity ledger — visible, never silently dropped.
+
+Gates ship in **observe mode**: evidence is recorded unconditionally, nothing escalates past
+`suspect`, and the report carries a gate-calibration table showing how often each fired. Thresholds
+tighten from that data. Nobody knows the right runner-CPU ceiling yet, because the old lab never
+measured one.
 
 ## Adding a scenario
 
-1. `scenarios/<nnn>-<slug>/README.md` — describe the integration: what it exercises, which
-   connectors and blocks, what the request and response look like, why it is interesting. The
-   methodology requires the integration to be described, so this is not optional.
-2. `octo/integration.yaml` — the flow, with its knobs written as **plain integers**
-   (`workers: 8`) so the archived config records the value that ran. Declare each knob in exactly
-   **one** place, or the renderer — which rewrites every occurrence of a name — will set them all
-   together.
-3. `scenario.env` — `ROUTE`, `TUNABLES` (default `workers buffer pool`; add e.g. `maxOpenConns`
-   or `listeners` where the scenario exposes them), `STEADY_RATE`, durations, and the sweep grid.
-   Set `READY_ROUTE` if the measured route is a POST or otherwise cannot answer a bare GET.
-   If the scenario needs infrastructure, add executable `setup.sh` / `teardown.sh` beside it;
-   the harness runs them outside the measured window. If its expressions need CEL functions
-   an older runtime does not have, declare `REQUIRES_CEL` — see below.
-4. `k6/smoke.js`, `k6/steady.js`, `k6/capacity.js` — import from `lab/k6/lib/`. Always read
-   `BASE_URL` from the environment; never hardcode a host.
-5. `task verify:render SCENARIO=<id>` to confirm both arms render, and `task diff SCENARIO=<id>`
-   to see exactly what separates them.
-6. Run `task smoke` before anything else.
+1. `scenarios/<nnn>-<slug>/README.md` — describe the integration: what it exercises, which connectors
+   and blocks, what the request and response look like, why it is interesting. The methodology
+   requires the integration to be described, so this is not optional.
+2. `octo/integration.yaml` — the flow, with knobs as **plain integers** so the archived config
+   records the value that ran. Declare each knob in exactly **one** place, or the renderer will set
+   every occurrence together. A knob that is not a root-flow `workers`/`buffer`/`pool` needs an
+   explicit `path:` on its tunable.
+3. `scenario.yaml` — `route`, `readyRoute`, `request`, `tunables`, `load`, `capacity`, `thresholds`,
+   and the `calibration:` block explaining why the rate is what it is. In the old lab that reasoning
+   was the most valuable line in `scenario.env` and existed only as a shell comment, so it never
+   reached a report.
+4. Dependencies go under `deps:` with executable `setup.sh`/`teardown.sh`. Write addresses as
+   `${DEPS_HOST}`; the harness substitutes it from the topology and hands the same string to the
+   script and to the runtime. Hard-coding `localhost` is how `host.docker.internal` happened.
+5. If the flows need CEL functions an older runtime lacks, declare `requiresCel:` — one expression
+   that must **compile and return true**, so a function that is present but behaves differently fails
+   as loudly as one that is absent. It is asked of the artifact, never inferred from a version
+   string: a source build reports the same constant as the release it branched from.
+6. `go test ./internal/spec/` — every shipped scenario is loaded, validated, and its payload built.
 
-### When a scenario needs a newer runtime
+## What the runtime actually gives us
 
-A scenario written against CEL functions an older runtime does not declare fails in the worst
-possible place: the run reaches preflight clean, starts the target, and *then* the flow fails to
-build — a wall of `undeclared reference` inside `octo.log`, after the scenario's dependencies are
-already up. `REQUIRES_CEL` in `scenario.env` moves that to the top of the run:
+Corrected from an earlier version of this file, which asserted the opposite and was wrong for two
+releases:
 
-```bash
-REQUIRES_CEL='"a,b".split(",").size() == 2 && ["b","a"].sort() == ["a","b"]'
-```
-
-One expression, covering everything the flows draw on. It must **compile and return true**, so a
-function that is present but behaves differently fails the gate as loudly as one that is absent.
-
-The harness asks the artifact under test with `octo eval` — the binary for `TARGET=native`, the
-image for `TARGET=docker` — rather than comparing version strings, because a version string
-cannot answer the question: a build from a source checkout reports the same constant as the
-release it branched from, feature or no feature. Preflight then names the functions the build
-lacks and points at `BUILD=dev`.
-
-This is the mechanism for measuring a capability before it ships. Note the corollary from the
-BUILD axis above: until it does ship, what comes out is a dev result, not a published one.
+- **0.5.0 added an admin port.** `--observability-addr` serves `/healthz`, `/readyz` and — with
+  `--metrics` — `/metrics`. There is no `/livez`.
+- **0.6.0 moved block events inline.**
+- **0.4.2 and 0.4.3 have neither flag**, and passing `--metrics` to them is a hard parse failure.
+  Capabilities are therefore probed against the artifact, never inferred from the version string, and
+  the raw help text is archived per cell.
+- **`octo --config <dir>` loads every config in that directory**, so two variants side by side would
+  both load and collide on the port. Each cell stages exactly one.
+- **`workers`, `buffer` and `pool` are root-flow only.** Sub-flows inside composite blocks inherit
+  from the parent and cannot declare their own.
+- **The flow-duration histogram's lowest bucket edge is 5 ms**, and most flows finish in
+  microseconds. A quantile inside that bucket is a *bound*, not a value, and `promx.Quantile` returns
+  it as one rather than interpolating an invented number.
 
 ## Findings workflow
 
@@ -186,63 +182,50 @@ Two stages, deliberately separate:
 1. **Observe → Notion.** Anything surprising — a bug, a missing capability, an odd curve, a
    question — becomes a dated bullet in the
    [Performance Benchmarking](https://app.notion.com/p/juancavallotti/Performance-Benchmarking-3a88c36eda30803ab07dde64a2b38a1c)
-   page, under `Findings Log`, `Enhancements`, `Bugs`, or `Open Questions`. Include the scenario,
-   the Octo version, and a link to the evidence in `results/`. This page is for thinking, so
+   page. Include the scenario, the version, and a link to the evidence. This page is for thinking, so
    low-confidence observations belong there too.
-2. **Decide → GitHub.** Once we decide to act on something, open an issue on the
-   [`juancavallotti/octo`](https://github.com/juancavallotti/octo) repo with `gh issue create`,
-   then back-link the issue URL into the Notion bullet. Notion is the log; GitHub is the commitment.
+2. **Decide → GitHub.** Once we decide to act, open an issue on
+   [`juancavallotti/octo`](https://github.com/juancavallotti/octo) with `gh issue create`, then
+   back-link it into the Notion bullet. Notion is the log; GitHub is the commitment.
 
-Do not open GitHub issues speculatively from a benchmark observation. The Notion stage exists so
-that judgement happens first.
-
-## Things the runtime does not give us
-
-Recorded here so nobody re-discovers them:
-
-- There is no `/metrics`, `/healthz`, or pprof endpoint, and no metrics connector among the
-  shipped connectors. All resource data comes from OS-level sampling, and readiness is detected by
-  polling a real business route until it returns 200.
-- `octo --config <dir>` loads **every** config in that directory, so `baseline.yaml` and
-  `tuned.yaml` sitting side by side would both load and collide on the port. `stage-config.sh`
-  exists to copy exactly one variant into a clean directory.
-- `workers`, `buffer`, and `pool` are **root-flow only**. Sub-flows inside composite blocks
-  inherit from the parent and cannot declare their own.
+Do not open GitHub issues speculatively from a benchmark observation. The Notion stage exists so that
+judgement happens first.
 
 ## Comparing against other runtimes
 
-[COMPARISON.md](COMPARISON.md) is the authority: what has to match before two figures
-describe the same thing, and what may be claimed. Read it before writing any sentence that
-puts an Octo number next to somebody else's. The short form:
+[COMPARISON.md](COMPARISON.md) is the authority. The short form:
 
-1. **Load model is not a detail.** Published benchmarks are almost always closed-model —
-   throughput against a fixed virtual-user population — and the "knee point" is an artifact of
-   that model.
-   This lab is open-model everywhere except `task vuramp`, which exists for exactly this purpose.
-   Never put an open-model number and a closed-model number in the same table.
-2. **Only footprint and CPU-ms/request are defensible today.** Throughput is not: theirs comes
-   from dedicated servers with dedicated load generators, ours from a laptop running both.
-3. **Match the scenario before claiming anything.** Camel's headline 0.345 ms is *in-process
-   routing latency*, not an end-to-end HTTP request.
-4. **Record what could not be built.** Several ordinary integration workloads have no Octo
-   equivalent — CSV and XML transformation, policy enforcement, record-oriented batch, Kafka
-   and JMS. Those gaps belong in COMPARISON.md — they are findings, not omissions.
-5. **Describe workloads, not vendors.** A scenario is justified by what it exercises in the
-   runtime — blocking I/O, collection mapping, fan-out — not by who else measured something
-   similar. Keep product names out of the repo.
+1. **Load model is not a detail.** Published benchmarks are almost always closed-model, and the
+   "knee point" is an artifact of that model. This lab is open-model except where a spec says
+   `model: closed`, which exists for exactly this purpose. The model is *recorded* per run, never
+   inferred, so the two can never end up in one table.
+2. **Match the scenario before claiming anything.** A headline "routing latency" is usually
+   in-process, not an end-to-end HTTP request.
+3. **Record what could not be built.** Ordinary integration workloads with no Octo equivalent belong
+   in COMPARISON.md — they are findings, not omissions.
+4. **Describe workloads, not vendors.** A scenario is justified by what it exercises in the runtime —
+   blocking I/O, collection mapping, fan-out — not by who else measured something similar.
 
-`CPU_LIMIT=1 task bench ...` caps the container to a stated size and stamps the cap into the
-run id. Use it whenever the point of a run is comparability rather than Octo-against-itself.
+## Changing the harness
+
+- Every `internal/` package has a `doc.go` stating **one** responsibility. A package whose `doc.go`
+  cannot is the wrong package.
+- The pure packages — `series`, `promx`, `stats`, `spec`, `plan`, `render`, `gate`, `payload` — carry
+  the correctness burden. A bug there corrupts a number instead of crashing.
+- `report` formats and derives nothing. That rule is what kept the old `report.py` from happening
+  twice: it reached a thousand lines and became the only place several published numbers were
+  computed.
+- A new failure mode appends a row to [docs/LEARNINGS.md](docs/LEARNINGS.md) **and** a test. That is
+  the rule, and 26 rows say it has been followed.
 
 ## Probing by hand
 
 Ad-hoc measurement outside the harness is fine for forming a hypothesis and is **not** a result.
-If you do it, two non-negotiables, both learned the hard way in one sitting:
+Two non-negotiables, both learned the hard way in one sitting:
 
-- **Assert the port is free before starting, and that the runtime logged `runtime ready`.** A
-  stale process holding 8080 does not fail loudly; it answers 404 quickly, which reads as
-  excellent throughput.
-- **Read `http_req_failed` before reading `http_reqs`.** A run that failed 100% of its requests
-  reports a throughput number like any other.
+- **Assert the port is free before starting, and that the runtime became ready.** A stale process
+  holding 8080 does not fail loudly; it answers 404 quickly, which reads as excellent throughput.
+- **Read `http_req_failed` and `dropped_iterations` before reading `http_reqs`.** A run that failed
+  every request reports a throughput number like any other.
 
-Anything worth publishing gets re-measured through `task bench` or `task vuramp`.
+Anything worth publishing gets re-measured through a campaign.
