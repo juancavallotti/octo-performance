@@ -11,13 +11,15 @@ Every result answers four questions: **what hardware and what runtime version**,
 integration** was under test, what it does **out of the box versus tuned**, and what that
 throughput **cost** in CPU and memory.
 
-- **[Results index](results/index.md)** — every run recorded so far, with a regression view
-  across Octo versions and a native-against-container view
+- **[Running the tests](docs/RUNNING.md)** — the operator's guide, from a one-minute
+  test suite to an eight-hour campaign on dedicated hardware
 - **[Methodology](METHODOLOGY.md)** — how runs are conducted, what each metric means, and
   what the numbers do not mean. Read this before quoting any of them.
 - **[Comparison to other runtimes](COMPARISON.md)** — what has to match before two
   benchmark figures describe the same thing, and what may honestly be concluded today
 - **[Working contract](AGENTS.md)** — the rules a result has to satisfy to be published
+- **[Learnings](docs/LEARNINGS.md)** — every failure this lab has produced, and the test that
+  now prevents each one
 
 ## Scenarios
 

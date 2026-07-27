@@ -13,7 +13,7 @@
 #
 #     ceiling ≈ workers / seconds_blocked = 8 / 0.070 ≈ 114 req/s
 #
-# lab/bin/render-config.py derives both arms; baseline strips the knobs so the
+# The harness derives both arms; baseline strips the knobs so the
 # runtime uses its own defaults.
 
 service:

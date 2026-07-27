@@ -1,0 +1,92 @@
+# Scenario 007 — CSV payload transformation.
+#
+# The same records scenario 006 sends, written as CSV instead of JSON. That is the point:
+# at the same record count the two scenarios do the same work on the same data, so the
+# difference between them is the cost of the input format and nothing else.
+#
+# The ladder is therefore sized in RECORDS, not bytes. CSV carries no keys, quotes or
+# braces, so it holds a record in roughly half the space; equal bytes would mean unequal
+# work and the comparison would be meaningless.
+
+route: /transform
+readyRoute: /health
+
+request:
+  method: POST
+  contentType: text/csv
+  payload:
+    kind: csv-records
+    #   9    -> ~0.6 KB CSV  (006's 1 KB JSON rung)
+    #   753  ->  ~47 KB CSV  (006's 100 KB JSON rung)
+    #   7700 -> ~480 KB CSV  (006's 1 MB JSON rung)
+    records: 9
+
+tunables:
+  - workers
+  - buffer
+  - pool
+
+# This scenario's decoder is written in CEL, using functions the runtime only gained when
+# the cel-go utility libraries were registered. Released 0.4.3 does not declare them, and
+# a run against it gets as far as starting the subject and then fails to build the flow.
+#
+# The artifact is asked directly rather than compared by version string, because a
+# version string cannot answer the question: a build from a source checkout reports the
+# same constant as the release it branched from, feature or no feature.
+#
+# One expression covering every library the two flows draw on. It has to compile AND
+# return true, so a function that is declared but behaves differently fails as loudly as
+# one that is missing.
+requiresCel: >-
+  ["b","a","a"].distinct().sort().join(",") == "a,b" &&
+  "a,b".split(",").size() == 2 &&
+  [1,2].transformList(i, v, i > 0, v) == [2] &&
+  regex.extract("x1", "x(\\d)").orValue("") == "1" &&
+  base64.encode(bytes("x")) == "eA==" &&
+  math.round(1.5) == 2.0 &&
+  sets.contains(["a"], ["a"]) &&
+  "%.2f".format([1.5]) == "1.50" &&
+  "A".lowerAscii() == "a" &&
+  "  a  ".trim() == "a"
+
+load:
+  test: steady
+  model: open
+
+  calibrate: true
+  calibrateFraction: 0.5
+
+  duration: 60s
+  warmup: 10s
+
+  # Steady-state latency here is sub-millisecond, which would argue for a smaller number.
+  # But the pool also has to absorb the first second of a run, where a cold runtime is
+  # two orders of magnitude slower and a pool sized for the steady state starves and
+  # drops iterations — drops that belong to the generator, not the server, and that are
+  # indistinguishable from saturation in the summary.
+  #
+  # It is also scenario 006's value, so the two offer load through an identically sized
+  # client. That is a precondition for comparing them at all.
+  expectedLatency: 5ms
+  vuCap: 16000
+
+# The peak brackets the ceiling rather than stopping short of it, so the ramp actually
+# reaches the knee. Read the top of it with care on a colocated host: past roughly
+# 15,000 req/s the generator competes with the runtime for the same cores.
+capacity:
+  startRate: 200
+  peakRate: 20000
+  steps: 10
+  dwell: 15s
+
+thresholds:
+  p95: 50ms
+  p99: 120ms
+
+calibration: |
+  The old lab ran 4,000 req/s, chosen to match scenario 006 so the two would offer the
+  same load over the same records. Sizing runs on m1pro-16gb against a source build put
+  the default rung's closed-model ceiling near 20,000 req/s for /transform and near
+  15,000 for /transform-rich — harness calibration, not a result, and not from a released
+  runtime. Past roughly 15,000 req/s the generator was competing with the runtime for the
+  same cores, so any ramp beyond that on a colocated host measures the wrong thing.

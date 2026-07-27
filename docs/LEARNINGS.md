@@ -1,0 +1,463 @@
+# Learnings
+
+Every row below is a failure the lab actually produced, with the evidence, and the thing that now
+makes it impossible to repeat silently.
+
+**The rule: a new failure appends a row *and* a test.** A learning recorded here without a test that
+enforces it is a note, and notes do not survive contact with the fourth testing attempt. That is
+exactly how the last harness accumulated correct documentation alongside wrong numbers —
+[METHODOLOGY.md](../METHODOLOGY.md) declared interleaving mandatory while `run-bench.sh` ran all of A
+then all of B, for the entire life of the project.
+
+Specimens for L1, L2, L5, L6 and L7 are frozen in
+[`internal/gate/testdata/corpus/`](../internal/gate/testdata/corpus/README.md).
+
+---
+
+## L1 — A colocated load generator makes results bimodal, not just slower
+
+**Evidence.** `~/.octo-versions/octo-0.4.3`, byte-identical, two consecutive days: 15,999 req/s at
+0.859 ms p95, then 6,938 req/s at 1,359 ms p95. 2.3× on throughput, 1,580× on p95.
+
+The instinct is to treat generator contention as a constant tax that cancels out of an A/B
+comparison. It does not. It is a feedback loop — more VUs, less CPU for the subject, higher latency,
+more VUs — so the system has two stable regimes and which one a run lands in is not a property of
+the thing being measured.
+
+**Enforced by.** The runner and subject are separate machines. `gate.GeneratorSaturation` marks a
+cell invalid on runner-CPU ceiling, pool growth, and cross-cell pool disagreement. The `collapsed`
+corpus specimen is a permanent regression test.
+
+## L2 — The VU pool was the cause and was never recorded
+
+**Evidence.** `vus_max` 1,600 in the healthy runs against 7,113 in the collapsed one. 1,600 is
+`poolFor()`'s Little's-law floor; the rest is k6 scaling under duress.
+
+`poolFor()` lived inside `lab/k6/lib/options.js`, computed silently at script start, and its output
+appeared in no result file. The single number that discriminates a good run from a worthless one was
+not merely unpublished — it was uncomputable after the fact.
+
+**Enforced by.** `loadgen.SizePool` computes the pool in Go. `PreAllocatedVUs`, `MaxVUs` and
+`ObservedMaxVUs` are all written to `cell.json`, and `VUCap` is a hard ceiling that reads as invalid
+when reached. Anything a gate needs to see must exist as a recorded value, not as a side effect
+inside someone else's script.
+
+## L3 — Prose in a methodology document is not a control
+
+**Evidence.** [METHODOLOGY.md](../METHODOLOGY.md): *"Alternate and repeat when comparing two
+configurations, rather than running all of A then all of B. A difference that survives interleaving
+is a difference; one that tracks position in the sequence is an artifact."* Marked **mandatory**.
+`lab/bin/run-bench.sh:148` is `for variant; do for rep; do`.
+
+Every "Gain" number the lab ever published is confounded with time-in-session and chassis
+temperature.
+
+**Enforced by.** `plan.Expand` emits the execution order, and a table test asserts it exactly.
+Blocked order remains expressible but requires an `orderReason` that the report prints in red.
+
+## L4 — Plain A,B,A,B is not balanced either
+
+Alternation still gives arm A every "first slot after cooldown" — the ordinal that inherits the most
+thermal and socket state. The order is rep-major with the within-rep arm order flipping: `A B / B A /
+A B …`, so for 2 arms × 5 reps the sequence is `A B B A A B B A A B` and both arms see each ordinal
+parity equally. Three or more arms rotate a seeded Latin square.
+
+**Enforced by.** `plan.Expand` + a test asserting parity balance, not just alternation. And
+`stats.OrderEffect` regresses each metric against execution ordinal, so the claim in the report is
+"position explains 4% of variance, r²=0.11" rather than "we interleaved, trust us".
+
+## L5 — A calibrated rate is a perishable good
+
+**Evidence.** `STEADY_RATE=16000` was chosen from a real capacity ramp on 2026-07-25 — the reasoning
+is a comment in `scenario.env`, and it was sound. By 2026-07-26 every cell exited k6 with 99 and shed
+262k–629k iterations. Nothing re-checked it, and `results/index.md` never showed the breach.
+
+A rate calibrated on one machine at one moment is a constant in the code and a variable in reality.
+
+**Enforced by.** Each campaign opens with a calibration phase per scenario, records the knee and the
+chosen fraction of it, and shares one rate across all arms of that scenario so arms are compared at
+equal offered load. `gate.RateGap` and `gate.DroppedIterations` fire on the breach itself.
+
+## L6 — A saturated run reports a throughput number like any other
+
+**Evidence.** Every published cell was saturated. The `⚠ non-zero dropped iterations … describes a
+saturated system` warning existed — in each individual `REPORT.md`, stripped out of the index that
+anyone actually read. 61 rows of point estimates with no verdict, no spread, and no mark on the
+invalid ones.
+
+**Enforced by.** `gate.Verdict` is a value attached to the cell, and the report is structurally
+unable to put a non-valid cell into a median. Excluded cells stay visible in a validity ledger rather
+than being silently dropped — a missing row and a bad row are both worse than a struck-through one.
+
+## L7 — Client-side latency is not server-side latency, and only one run could tell
+
+**Evidence.** The `metricson` run: client p95 933.01 ms, runtime mean flow duration 0.41 ms. Its own
+report says the gap is *"queueing at the load generator, not work in the runtime"*.
+`results/index.md` published the 933.01 ms as Octo's p95. 35 of 37 runs had no server-side data at
+all, so for those the question could not even be asked.
+
+**Enforced by.** Server-side metrics are on by default, client and server latency sit side by side in
+the report, and a divergence beyond threshold is a finding.
+
+## L8 — Interpolating inside the lowest histogram bucket invents a number
+
+**Evidence.** `octo_flow_duration_seconds` uses Prometheus default buckets, lowest edge 5 ms; the
+flow completes in microseconds, so every observation lands in the first bucket. Linear interpolation
+there yields a p50 of 2.5 ms — a function of bucket width and nothing else.
+
+`lab/bin/prom.py` got this right, and getting it right is worth more than most of the rest of the
+harness.
+
+**Enforced by.** `promx.Quantile` is a struct carrying `Ok`, `Bound` and `Edge`; `Seconds` is
+meaningless unless `Ok`. No caller can receive a bare float, so nobody can print false precision by
+accident. Tested against the real exposition in `internal/promx/testdata/`.
+
+## L9 — Ask the artifact, never the version string
+
+**Evidence.** A source build reports the same version constant as the release it branched from, so a
+version string cannot answer "does this binary have an admin port". And guessing wrong is not a
+degraded measurement — passing `--metrics` to 0.4.3 is a hard flag-parse failure at start-up.
+
+**Enforced by.** `subject.Capabilities` greps the artifact's own `run --help`, archives the raw help
+text, and the assembled argv is written to `argv.json` so the invariant is auditable after the fact.
+
+## L10 — Detection that is wrong optimistically is the dangerous direction
+
+Capability detection is a grep of someone else's CLI output, which is not an API. If it says the
+admin port is absent, the harness loses a data source. If it says the port is present and it is not,
+the harness waits on readiness that never arrives, or worse, reports a cold start measured by a
+different method than the arm it is compared against.
+
+**Enforced by.** Positive confirmation: if detection claims an admin port, `/livez` must answer or
+the cell is invalid. `ReadyResult.Method` is recorded per cell, and arms whose readiness method
+differs are not comparable on cold start.
+
+## L11 — Two bracketing snapshots bracket the wrong window once the window is detected
+
+`scrape-metrics.py` wrote `metrics-start.prom` and `metrics-end.prom` around the whole load pass.
+That is correct only if the measured window *is* the whole load pass. Once warm-up is detected rather
+than slept through, those two files describe an interval nobody is reporting on.
+
+**Enforced by.** Every scrape is kept (`metrics.ndjson.gz`, a few MB per campaign), and the two
+bracketing the *detected* window are the ones differenced.
+
+## L12 — The measured window was a `sleep`
+
+A fixed 10 s warm-up assumes the shape of the ramp. It is also unfalsifiable: nothing recorded
+whether the system had actually settled.
+
+**Enforced by.** `stats.DetectSteady` accepts the earliest suffix whose CV and slope clear threshold
+*and* whose subject-CPU series is also flat, with a minimum duration. No window → the gate fires;
+there is no silent fallback. Both the detected window and the naive fixed window are written to
+`cell.json`, so detection can be audited across a campaign instead of trusted.
+
+## L13 — Experiment intent lived in directory names
+
+**Evidence.** `-mON`, `-mOFF`, `-mNOSCRAPE`, `-probesonly`, `-metricson`: five free-text `RUN_LABEL`
+values covering two actual axes, two of them synonyms. The only place the mapping is written down is
+four lines of `results/isolate-2026-07-26.log`, which nothing links to. Two runs are stamped
+`vunknown-dev` and are unattributable to any commit, and were published anyway.
+
+**Enforced by.** The campaign spec is the intent, is checked in, and is archived verbatim with the
+result. A campaign refuses to start an arm whose version cannot be resolved.
+
+## L14 — An aborted run looks exactly like a finished one
+
+**Evidence.** Three directories on disk have partial cells and no `result.json`. `index.py` silently
+skips them, so `results/` holds 40 directories while the index lists 34 and nothing explains the gap.
+
+**Enforced by.** A campaign state file records per-cell completion; incomplete cells are marked as
+such and a campaign resumes rather than restarting.
+
+## L15 — n=3 and a median is not a result
+
+**Evidence.** `+5.1%` published from baseline `{11600.8, 10781.5, 9989.8}` against tuned
+`{10457.9, 11577.5, 11333.4}` — distributions that almost entirely overlap. Gains of `+305.1%` and
+`-0.0%` printed to one decimal with identical typographic weight.
+
+**Enforced by.** `stats.Compare` returns a `Comparison` with a populated `Reason` whenever it refuses
+significance — delta inside the noise band, overlapping CIs, N below minimum, or a non-valid cell in
+either arm. There is no code path that emits a bare point estimate.
+
+## L16 — Four programs, one procedure
+
+`run-bench.sh`, `sweep.sh`, `run-vuramp.sh` and `run-profile.sh` each re-implemented
+start → ready → warm-up → sample → measure → stop → cooldown with a copy-pasted `k6 run`. A fix
+applied to one did not reach the others.
+
+**Enforced by.** `campaign.RunCell` is the only implementation. Sweep, capacity and VU-ramp are
+campaign *shapes* — different specs, same code.
+
+## L17 — A reporter that computes will become a library
+
+`report.py` reached 1,020 lines doing derivation, validity rendering and formatting at once, and
+`sweep-report.py` began importing from it. It printed a validity table and then printed the numbers
+anyway, because nothing structural stopped it.
+
+**Enforced by.** `report` receives a fully computed model and derives nothing.
+
+## L18 — Capturing a field is not the same as using it
+
+`time.txt` carries `instructions retired` and `cycles elapsed` on every run, and nothing has ever
+read them. Meanwhile ~60 captured fields per rep funnelled down to 4 published columns, so the
+interesting data was on disk and invisible.
+
+**Enforced by.** The typed result model carries everything and the report chooses. A field that
+reaches neither the report nor a gate is deleted rather than collected.
+
+## L19 — Reaching a dependency by a longer road measures the road
+
+**Evidence.** Scenarios 003 and 005 addressed host-side dependencies as `host.docker.internal`: out
+through the VM's NAT, onto the host, back through a published port. For a flow doing three database
+round trips that path dominated, and raising `workers` made it *worse*.
+[METHODOLOGY.md](../METHODOLOGY.md) calls the resulting column *"not merely indicative — it is
+misleading"* and says to ignore it, which is the correct call and also an admission that the
+measurement should not have been taken.
+
+**Enforced by.** Dependencies run on their own VM on the same VPC — an ordinary network hop, honest
+to describe, and the same road in every arm.
+
+## L20 — Correlating three machines means correlating three clocks
+
+At 1 Hz over a 60 s window, 500 ms of skew moves a sample by a whole bucket, which is enough to
+invert "the CPU spike preceded the RPS drop". GCP VMs are NTP-disciplined, but "disciplined" is not
+"synchronised", and a step correction mid-campaign is not detectable after the fact.
+
+**Enforced by.** The agent handshake measures the offset over N round trips (minimum-RTT sample), at
+cell start and again at cell end. Offset, uncertainty and inter-probe drift are recorded per cell,
+and drift beyond threshold is a finding.
+
+## L21 — Absent and zero are different claims
+
+**Evidence.** k6 omits `dropped_iterations` from the summary entirely when a run dropped nothing.
+A parser that reads a missing metric as zero and a present zero as zero cannot tell a clean run from
+one whose generator never reported. The same shape appears throughout: `octo_build_info` is absent
+from a build with no `--metrics`, and the old lab's `runtime-identity.json` recorded that absence as
+an empty string indistinguishable from a failed scrape.
+
+This is the optimistic direction, which is the dangerous one. Every absence here resolves to
+"nothing went wrong".
+
+**Enforced by.** Every parsed metric carries `Present` beside its value —
+`loadgen.Counted`, `Rated`, `Gauged`, `Trend`, and `promx.Quantile.Ok`. `TestAbsentIsNotZero` asserts
+it against both k6 fixtures, one of which dropped 11,292 iterations and one of which dropped none.
+
+## L22 — A time series that costs two gigabytes per cell is a time series nobody keeps
+
+**Evidence.** k6 emits one CSV row per observation and about a dozen observations per request. Sixty
+seconds at sixteen thousand requests per second is thirteen million rows, roughly two gigabytes, for
+one cell out of seventy. The old lab's response was to keep no time series at all — only the
+end-of-run summary — which is why it could not detect a steady window, could not see the achieved
+rate fall during a run, and could not distinguish a generator that grew its pool from one that did
+not. Three of the gates this rebuild depends on were impossible for want of a file nobody wanted to
+store.
+
+**Enforced by.** `k6 --out csv=` writes to a named pipe and `loadgen.Aggregator` folds the rows into
+one-second buckets as they arrive; the raw rows are never stored. Sixty rows reach disk. `RawRows`
+and `UnparsedRows` are recorded, so loss is visible as a number rather than as silence, and
+`TestK6DrivesARealLoadPassAndStreamsItsSeries` fails if any artifact in a cell directory exceeds four
+megabytes.
+
+## L23 — Documenting from memory is the same mistake as inferring from a version string
+
+**Evidence.** `docs/ARCHITECTURE.md` specified the positive capability confirmation as "the admin
+port must answer `/livez`". The runtime has never served `/livez`. `octo run --help` says `/healthz`
+and `/readyz`, and it said so the whole time.
+
+This ledger's oldest rule is to ask the artifact rather than believe a claim about it, and the
+document stating that rule broke it — in the one paragraph specifying a probe. Had the code been
+written to match the document, every cell would have failed its confirmation and the failure would
+have read as a broken runtime.
+
+**Enforced by.** The three admin routes are constants in `internal/subject`, named once, and the
+fixtures under `internal/subject/testdata/help/` are the verbatim output of all four octo binaries
+this lab compares. `TestCapabilitiesComeFromTheArtifactNotTheVersionString` reads them rather than
+any prose, including this sentence.
+
+## L24 — A lookup that matches nothing looks exactly like a subject that did nothing
+
+**Evidence.** The cell procedure derived the flow name from the scenario id: strip the numeric
+prefix from `001-template-page` and you get `template-page`. The flow in that scenario is called
+`page`. So `octo_flow_duration_seconds{flow="template-page"}` matched no series, the histogram lookup
+returned nothing, and the cell recorded a server-side mean of zero and continued — while
+`octo_flow_messages_total`, which is aggregated by outcome and never touches the flow label, kept
+working and reported 5,381 completed messages.
+
+The result was a cell that looked complete and internally consistent: real throughput, real client
+latency, real message counts, and a server latency of exactly zero. Nothing in it was marked missing,
+because nothing knew it was. It survived every unit test in the package and was caught only by
+running against the real binaries and noticing a number that was too round.
+
+**Enforced by.** `campaign.flowNames` reads the flows out of the config that ran, which is the only
+thing that knows what the runtime will label its metrics with, and the names are recorded in
+`Server.Flows`. A histogram lookup that finds nothing logs the flow it looked for.
+`TestFlowNamesComeFromTheConfigNotTheScenarioId` covers the case, and the end-to-end cell test
+asserts a server mean that is present and non-zero.
+
+The general shape is worth more than the instance: an absent lookup and an absent phenomenon are
+indistinguishable unless something records which one happened. See also [L21](#l21).
+
+## L25 — "No regression was found" and "nothing could be established" are different sentences
+
+**Evidence.** The first campaign the roll-up rendered ran two repetitions per arm. Every comparison
+declined at the minimum-n rule — correctly, and saying so in its reason — so the campaign produced
+zero regressions. The verdict banner read: *"No regression found on any of the 1 scenarios: every
+delta is inside its noise band."* Not one delta had been tested against a noise band. The sentence
+was assembled by counting regressions and finding none.
+
+This is the most consequential false negative available to a lab. A wrong number invites checking;
+a confident "no regression" from evidence that decided nothing does not, and it is exactly the
+outcome a thin or interrupted campaign produces by default.
+
+**Enforced by.** `result.Evidence` counts comparisons that reached a decision separately from those
+that declined, and `verdictSentence` tests "nothing was established" **before** "nothing regressed" —
+the ordering is the fix, and the comment above it says so.
+`TestRollupSeparatesNothingEstablishedFromNoRegression` asserts the exact wording is absent, because
+the failure here is a sentence rather than a value. A campaign that decides some comparisons and
+declines others states both counts in the same sentence.
+
+## L26 — A capacity ramp with no warm-up calibrates against its own cold start
+
+**Evidence.** The first end-to-end calibration of scenario 001 chose **1,000 req/s**. The scenario's
+own history put the knee near 32,000, and a steady cell at 1,000 req/s then reported a client p95 of
+0.44 ms — nowhere near a limit. The ramp's own table said why:
+
+```
+offered 2000   achieved 2000.4  dropped 0     mean 11.57 ms   held
+offered 6222   achieved 5646.9  dropped 8354  mean 77.79 ms   the generator shed 8354 iterations
+```
+
+11.57 ms on the first rung, against a steady-state mean of 0.44 ms. The first rung was measuring a
+cold runtime and a load generator still allocating a virtual-user pool sized for the top of the ramp
+— 4,000 VUs — and the pool allocation is what shed the iterations on the second.
+
+The first rung is also the reference the latency criterion compares every later rung against. Setting
+it twenty-six times too high does not weaken that criterion, it switches it off: nothing can be three
+times 11.57 ms before something else fails first. So the ramp fell back to the drop count alone, and
+the drop count on rung two was the generator's own start-up.
+
+Every arm of the scenario would then have run at 1,000 req/s. Both would have held it comfortably,
+both would have reported sub-millisecond latency, and the campaign would have concluded — accurately,
+and uselessly — that the two versions agree at 3% of capacity.
+
+**Enforced by.** `Capacity.Warmup`, defaulting to one dwell, prepended as a rung at the start rate
+whose window is not evaluated. `campaign.Calibrate` offsets `stats.StepWindows` past it. With the
+warm-up the same ramp reads:
+
+```
+offered  2000   ratio 1.000  dropped    0   mean 0.36 ms   held
+offered 18888   ratio 0.999  dropped    0   mean 0.42 ms   held
+offered 23111   ratio 0.982  dropped 5547   mean 5.20 ms   the generator shed 5547 iterations
+```
+
+A 0.36 ms reference, a knee at 18,888, and a chosen rate of 9,444 — at which the measured cell ran
+9,443 req/s at a p95 of 0.17 ms.
+
+The general shape: **a measurement used as a reference for other measurements has to be at least as
+carefully taken as they are.** The measured passes had a warm-up from the first day, because
+everybody knows a cold runtime is slow. The ramp that decides what rate those passes run at did not,
+because it did not look like a measurement — it looked like setup.
+
+## L27 — "Cannot say" is not "not flat", one layer below where that was already fixed
+
+**Evidence.** CI on Linux failed `TestRunCellProducesADefensibleResult` with:
+
+```
+no steady window found: no interval of this pass was flat enough to measure;
+there is no silent fallback
+```
+
+The same test passes on macOS, and not by luck. macOS has no `/proc`, so the sampler reports
+`Coarse` fidelity and `campaign.selectWindow` deliberately declines to corroborate at all. Linux
+reports `Full`, so the corroboration path runs — and that path had never once executed on the
+machine it was written on.
+
+Inside it, `slopePctPerMin` returns `ok=false` when a series has too few points to fit a trend
+**or when its mean is about zero**. A cheap process sampled at 200 ms against a 100 Hz clock
+accrues at most a tick or two per interval, so its differentiated CPU rate is mostly quantisation
+steps around nothing. `DetectSteady` read that `!ok` as a failed corroboration, kept searching,
+and ran out of pass.
+
+The consequence is the worst shape a measurement error can take. The harness reported **"no
+interval of this pass was flat enough to measure"** — a statement about the subject — when what
+happened is that the instrument could not see. A runtime cheap enough not to register would be
+called unsteady forever, and the fix would have been looked for in the runtime.
+
+What makes this a row rather than a line in a commit message: **the same distinction had already
+been drawn, correctly, one layer up.** `selectWindow` carries a comment saying *"Rejecting a
+window for want of evidence is not the same as rejecting it on evidence, so the weaker claim is
+made explicitly instead"* — and then calls `DetectSteady`, which did the opposite. Getting a
+principle right in one place is not the same as enforcing it, and the place it was enforced was
+the place the author could run.
+
+**Enforced by.** `DetectSteady` accepts the window with `Corroborated: false` when the
+corroborating series cannot answer, and still vetoes when it can answer and disagrees.
+`Corroborated` is already carried into `cell.json` and printed in the report, so the weaker claim
+gets stated rather than the stronger one silently refused.
+`TestACorroboratorThatCannotAnswerDoesNotVetoTheWindow` covers all-zeros, a single point, and a
+series that windows to nothing; `TestACorroboratorThatCanAnswerStillVetoes` covers the case the
+check exists for, so the fix cannot have deleted it. Both were confirmed to fail against the old
+behaviour before being committed.
+
+The general shape, again: **an instrument that cannot measure something must say so in its own
+voice, not in the subject's.**
+
+## L28 — The same instrument, answering confidently with its own granularity
+
+**Observed.** L27 shipped, CI ran, and the same test failed again with the same message: *"no
+interval of this pass was flat enough to measure"*. The fix had been real and had not been enough.
+
+L27 handled a corroborator with *no* answer — too few points, or a mean of about zero. This is a
+corroborator that answers, with a number, and the number is the counter's granularity. The kernel
+counts process CPU in clock ticks, so a rate differenced out of it cannot be continuous: at 100 Hz
+sampled every 200 ms the only observable utilisations are 0, 0.05, 0.10, 0.15 … Against a subject
+using an eighth of a core, one step is nearly **40% of the signal**, and the series has four
+distinct levels in it.
+
+Six runs of one unchanged workload on Linux, throughput constant at 400.0 rps in every bucket —
+CV 0.0000, slope 0.00000/s, r² 1.000 — and the corroborating CPU trend read:
+
+| run | fitted trend | r² |
+|---|---|---|
+| 1 | +1088 %/min | 0.063 |
+| 2 | +594 %/min | 0.079 |
+| 3 | +294 %/min | 0.007 |
+| 4 | **−2342 %/min** | 0.472 |
+| 5 | −1394 %/min | 0.107 |
+| 6 | +349 %/min | 0.019 |
+
+The sign flips. The magnitude spans an order of magnitude. Nothing about the workload changed. A
+seventh run came in at +139 %/min, under the 150 %/min bound, and *passed* — which is how this
+reached CI at all, and is the worst property of the whole failure: **it fails intermittently, so it
+gets retried until it passes**, and the retry is read as a flake rather than as the detector
+reporting a constant signal as a runaway trend.
+
+**The wrong fixes, and why.** Loosening the trend bound only moves the coin's bias. Testing the
+slope's *significance* fails too — run 4 has t = 2.67, p ≈ 0.03, "significant" at 5% and still pure
+noise. Both are tests on the draw, and the draw is the thing that varies.
+
+**Enforced by.** The veto is conditioned on **resolution**, which is a property of the measurement
+and identical on every run. `agent.Collected.CPURateQuantum` reports one clock tick per sampling
+interval — the smallest utilisation the collection could have observed — and `DetectSteady` lets a
+corroborating series reject a window only when that quantum is at most a tenth of the series' own
+mean (`DefaultMaxQuantumFrac`). Above it the series abstains, the window is accepted with
+`Corroborated: false`, and `Window.CorroborationNote` records the arithmetic in the cell and the
+report: *"resolves to 0.05, 38% of its own mean — too coarse to tell a trend from its own
+granularity."*
+
+A tenth is chosen against what the corroborator is *for*: catching a runtime still warming under
+real load, where the subject burns whole cores, one tick per sample is a percent or two of the
+signal, and a genuine climb stands well clear of it. `TestResolutionIsJudgedAgainstTheSignalNotThe`
+`Slope` holds that line — the same 0.05 quantum against a two-core subject is 2.5% of the signal,
+and there the veto still fires.
+
+**How it was found, which is the transferable part.** The first two attempts at this bug were
+reasoned from the failure message; both were wrong. The third built the failing environment —
+`docker run golang:1.26` plus k6, the repo mounted — reproduced it in one command, printed every
+candidate window's statistics, and the cause was unambiguous in a single run. *CI is a Linux
+machine and so is Docker.* An hour of guessing at a platform-specific failure buys less than five
+minutes of standing the platform up.
+
+The general shape: **a measurement's resolution is part of the measurement.** A number carried
+without it invites arithmetic that its own precision cannot support — and the arithmetic will
+produce a confident answer anyway.

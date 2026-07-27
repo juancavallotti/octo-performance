@@ -1,0 +1,146 @@
+/* One stylesheet, inlined. No fonts fetched, no images, nothing that needs a network.
+   A report is meant to be readable in five years from a directory someone copied. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #fbfbfa;
+  --panel: #ffffff;
+  --ink: #1c1c1a;
+  --muted: #6b6b66;
+  --rule: #e3e3df;
+  --good: #1a7f4b;
+  --bad: #b3261e;
+  --warn: #9a6700;
+  --noise: #6b6b66;
+  --accent: #2f5fa8;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16171a;
+    --panel: #1d1f23;
+    --ink: #e6e6e3;
+    --muted: #9a9a95;
+    --rule: #2e3035;
+    --good: #4cc38a;
+    --bad: #ef6f6a;
+    --warn: #d9a441;
+    --noise: #9a9a95;
+    --accent: #7aa2e3;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 2.5rem 1.5rem 6rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+main { max-width: 62rem; margin: 0 auto; }
+
+h1 { font-size: 1.6rem; margin: 0 0 .2rem; letter-spacing: -.01em; }
+h2 { font-size: 1.15rem; margin: 3rem 0 .75rem; letter-spacing: -.005em; }
+h3 { font-size: .95rem; margin: 1.75rem 0 .5rem; }
+h4 { font-size: .8rem; margin: 1.25rem 0 .4rem; text-transform: uppercase;
+     letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+
+p { margin: .5rem 0; }
+a { color: var(--accent); }
+
+.question { color: var(--muted); margin: 0 0 1.5rem; }
+
+.verdict {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  padding: 1.1rem 1.25rem;
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+.verdict.clean { border-left-color: var(--good); }
+.verdict.regressed { border-left-color: var(--bad); }
+.verdict.void { border-left-color: var(--warn); }
+
+.warnings { margin: 1.25rem 0 0; padding: 0; list-style: none; }
+.warnings li {
+  border-left: 3px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+  padding: .6rem .85rem;
+  margin: .5rem 0;
+  border-radius: 0 4px 4px 0;
+  font-size: .9rem;
+}
+
+table { border-collapse: collapse; width: 100%; font-size: .875rem; }
+th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--rule); }
+th { font-weight: 600; color: var(--muted); font-size: .78rem;
+     text-transform: uppercase; letter-spacing: .05em; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+
+/* Wide content scrolls inside its own box; the page never scrolls sideways. */
+.scroll { overflow-x: auto; margin: .5rem 0 1rem; }
+
+.good { color: var(--good); }
+.bad { color: var(--bad); }
+.warn { color: var(--warn); }
+.noise { color: var(--noise); }
+.unknown { color: var(--muted); }
+
+.tag {
+  display: inline-block; padding: .05rem .4rem; border-radius: 3px;
+  font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  border: 1px solid currentColor;
+}
+
+.muted { color: var(--muted); }
+.small { font-size: .82rem; }
+.mono { font-family: var(--mono); font-size: .82rem; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 1rem 1.15rem;
+  margin: 1rem 0;
+}
+
+.chart { margin: .5rem 0 1rem; }
+.chart .axis { fill: var(--muted); font-size: 10px; font-family: var(--mono); }
+.chart .arm { fill: var(--ink); font-size: 11px; }
+.chart .dot { fill: var(--accent); fill-opacity: .55; }
+.chart .median { stroke: var(--ink); stroke-width: 2; }
+.chart .ci { stroke: var(--muted); stroke-width: 1; }
+.chart .grid { stroke: var(--rule); stroke-width: 1; }
+
+.bars { display: grid; grid-template-columns: auto 1fr auto; gap: .35rem .75rem;
+        align-items: center; font-size: .85rem; }
+.bar { height: 11px; border-radius: 2px; }
+.bar.client { background: var(--accent); }
+.bar.server { background: var(--good); }
+
+tr.excluded td { color: var(--muted); text-decoration: line-through; }
+tr.excluded td.reason { text-decoration: none; }
+
+.reason { color: var(--muted); font-size: .82rem; }
+
+dl.provenance { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1.25rem;
+                margin: .5rem 0; font-size: .875rem; }
+dl.provenance dt { color: var(--muted); }
+dl.provenance dd { margin: 0; font-family: var(--mono); font-size: .82rem; word-break: break-all; }
+
+footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--rule);
+         color: var(--muted); font-size: .8rem; }
+
+/* The capacity ramp, nested under the rate it produced. It is a detail table rather
+   than a chart on purpose: what matters is which rung stopped holding and why, and a
+   curve shows the bend without naming the cause. */
+tr.sub > td { padding: 0 0 .75rem 1.25rem; border-top: none; }
+table.inner { width: auto; font-size: .8rem; border-collapse: collapse; }
+table.inner th, table.inner td { padding: .18rem .6rem; border-bottom: none; }
+table.inner thead th { color: var(--muted); font-weight: 500; }

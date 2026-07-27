@@ -1,6 +1,6 @@
 # Scenario 001 — template page. The single source of truth for this integration.
 #
-# lab/bin/render-config.py derives both benchmark arms from this one file:
+# The harness derives both benchmark arms from this one file:
 #
 #   baseline — workers/buffer/pool are STRIPPED, so the runtime uses its own
 #              compiled-in defaults. Stripping rather than writing 8/64/8 keeps the

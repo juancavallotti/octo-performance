@@ -1,0 +1,106 @@
+# Release builds for the lab.
+#
+# The point of releasing at all is the VMs. Infrastructure is ephemeral — terraform
+# apply, run a campaign, terraform destroy — so every campaign starts from a bare
+# machine, and a startup script that curls a pinned tarball is the shortest path from
+# "no machine" to "machine that can measure something".
+#
+# The archive is therefore not just the binary. A runner holding `perf` and no scenarios
+# cannot run anything, and a runner that fetched `perf` from a release and `scenarios/`
+# from a git checkout could have the two disagree — silently, because a scenario that
+# loads is not the same as a scenario the harness was written against. One tarball holds
+# both, so they cannot come from different commits.
+#
+# The deps host unpacks the same tarball to the same path, and that is load-bearing: a
+# scenario's setup.sh is addressed by the path the harness knows it by, and the harness
+# runs on the runner.
+
+version: 2
+
+before:
+  hooks:
+    # Through a shell because the module lives in harness/ and an OSS before-hook is a
+    # plain command line with no working directory of its own.
+    #
+    # The suite runs again here even though CI already ran it on the way to main. A
+    # release is the one artifact somebody installs without having read the commit, and
+    # the cost of re-running it is under a minute.
+    - sh -c "cd harness && go mod tidy && git diff --exit-code -- go.mod go.sum"
+    - sh -c "cd harness && go test ./..."
+
+builds:
+  # perf runs on the runner VM and on a laptop for local iteration.
+  #
+  # dir: harness because the Go module lives there. goreleaser's monorepo support is a
+  # Pro feature; for a single module in a subdirectory a per-build dir does the same job.
+  - id: perf
+    dir: harness
+    main: ./cmd/perf
+    binary: perf
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.version={{.Version}}
+      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.commit={{.FullCommit}}
+      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.date={{.CommitDate}}
+
+  # The backend scenario 005 proxies to.
+  #
+  # Shipped rather than built at setup time, because a benchmark dependency compiled
+  # on the machine that uses it is a dependency whose version nobody recorded — and
+  # this one's response delay and payload size are what scenario 005 actually
+  # measures, so "which build of the backend" is a question a result has to answer.
+  #
+  # Built for darwin too, matching perf. It is tempting to ship linux only, on the
+  # grounds that the deps host is the only place it belongs — but a local smoke pass
+  # over scenario 005 needs it on the laptop, and a missing binary there would push
+  # the operator back to compiling it by hand, which is the thing being retired.
+  # Colocation is a topology hazard, and the report already names it.
+  - id: labbackend
+    dir: harness
+    main: ./cmd/labbackend
+    binary: labbackend
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s, -w]
+
+# There is deliberately no agent binary here.
+#
+# The plan called for a perf-agent on the subject, speaking a versioned NDJSON protocol
+# and supervising octo so that wait4 would yield exact whole-lifetime CPU. It was
+# dropped: the exactness is worth less than the cost, which is a second artifact whose
+# version can disagree with the runner's. A mismatched sampler does not fail — it
+# produces plausible data. perf reaches the subject over SSH and reads its /proc through
+# the same connection, and the cost denominator comes from differencing the cumulative
+# CPU counter, which is the same arithmetic the local sampler already does.
+
+archives:
+  - id: lab
+    ids: [perf, labbackend]
+    name_template: "octo-perf-lab_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Everything a runner needs to execute a campaign. The scenarios are what the
+    # harness measures; the campaigns are the experiments somebody already decided were
+    # worth running; the documents are what a reader needs before believing an answer.
+    files:
+      - scenarios/**/*
+      - campaigns/*.yaml
+      - METHODOLOGY.md
+      - AGENTS.md
+      - docs/RUNNING.md
+
+checksum:
+  # The startup scripts verify against this, so a truncated download fails at boot
+  # rather than halfway through a campaign.
+  name_template: "checksums.txt"
+
+changelog:
+  # release-please owns the changelog; goreleaser only ships artifacts.
+  disable: true
+
+release:
+  prerelease: auto

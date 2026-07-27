@@ -73,12 +73,12 @@ task bench    SCENARIO=002-fanout-transform TUNED_POOL=32
 
 ## Load profile
 
-`STEADY_RATE` starts at 4,000 req/s — far below scenario 001's 16,000, because each request
+`load.rate` starts at 4,000 req/s — far below scenario 001's 16,000, because each request
 now does substantially more work. `ORDER_LINES` (default 8) controls how many lines the
 payload carries and therefore how many `foreach` iterations each message costs; raising it is
 the cheapest way to make the scenario more CPU-heavy without changing the flow.
 
-Run `task capacity` on any new hardware or Octo version before trusting `STEADY_RATE`.
+Run `task capacity` on any new hardware or Octo version before trusting `load.rate`.
 
 ## Checks in the smoke gate
 

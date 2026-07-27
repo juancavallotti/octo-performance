@@ -1,0 +1,85 @@
+# Scenario 003 — Postgres CRUD.
+#
+# Three database round trips per request. This is the regime where `workers` is supposed
+# to matter, and where it meets a second, competing limit in `maxOpenConns`: more workers
+# than connections just moves the queue from the message channel to the connection pool,
+# which is the interaction this scenario exists to measure.
+
+route: /order
+
+# The measured route is a POST. The health flow issues a SELECT, so "ready" here means
+# the connection pool works, not merely that the HTTP server is listening.
+readyRoute: /health
+
+request:
+  method: POST
+  contentType: application/json
+  # A fixed document: the server-side cost is three round trips, and the body's shape
+  # does not vary. Written literally rather than generated because there is nothing to
+  # generate — a size ladder would measure the driver, not the scenario.
+  #
+  # amount is a decimal: JSON numbers decode to CEL doubles and the column is
+  # numeric(12,2).
+  body: '{"customer":"acme-industrial","channel":"web","amount":249.95}'
+
+tunables:
+  - workers
+  - buffer
+  - pool
+  # Not root-flow knobs. They live on the database connector's settings, and declaring
+  # them by bare name would send the renderer looking at flows[*] and find nothing.
+  - name: maxOpenConns
+    path: connectors[*].settings.maxOpenConns
+  - name: maxIdleConns
+    path: connectors[*].settings.maxIdleConns
+
+deps:
+  setup: setup.sh
+  teardown: teardown.sh
+  env:
+    PG_CONTAINER: octo-bench-pg
+    PG_IMAGE: postgres:17-alpine
+    PG_PORT: "55432"
+    PG_DB: octobench
+    PG_PASSWORD: octobench
+    # The one string both sides of the connection read. ${DEPS_HOST} is substituted by
+    # the harness from the topology, which is what stops a scenario from hard-coding
+    # where its dependency lives — the mistake that made host.docker.internal look like
+    # a working arrangement on a laptop and nothing anywhere else.
+    PG_DSN: "postgres://postgres:octobench@${DEPS_HOST}:55432/octobench?sslmode=disable"
+  note: |
+    Postgres runs in a container. On the colocated laptop topology it shares the
+    subject's cores and reaches it over the loopback, which understates network cost and
+    overstates contention; on a split topology it belongs on the deps host, reached over
+    ordinary VPC networking. Which one ran is recorded in the environment fingerprint.
+
+load:
+  test: steady
+  model: open
+
+  calibrate: true
+  calibrateFraction: 0.5
+
+  duration: 60s
+  warmup: 10s
+
+  # Database latency dominates and its tail is long. Size the pool from the tail or the
+  # generator sheds iterations and it reads as server saturation.
+  expectedLatency: 60ms
+  vuCap: 16000
+
+capacity:
+  startRate: 200
+  peakRate: 6000
+  steps: 10
+  dwell: 15s
+
+thresholds:
+  p95: 100ms
+  p99: 300ms
+
+calibration: |
+  The old lab carried 1,500 req/s with a note to calibrate it first, which nothing ever
+  did. Three Postgres round trips per request against a container on the same host puts
+  this far below the CPU-bound scenarios; where exactly depends on the database's host
+  as much as the runtime's, which is precisely why it is measured per campaign.

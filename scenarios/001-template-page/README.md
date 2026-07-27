@@ -46,7 +46,7 @@ alone and quietly exclude the templating engine.
 | baseline | `octo/baseline.yaml` | absent — Octo defaults (8 / 64 / 8) |
 | tuned | `octo/tuned.yaml` | set explicitly, supplied from the environment |
 
-The two files are identical apart from those keys, which `lab/bin/assert-variants.py`
+The two files are identical apart from those keys, which the renderer's own verification pass
 enforces before every run.
 
 ## Running it
@@ -92,9 +92,9 @@ knobs do matter.
 
 ## Load profile
 
-Set in `scenario.env`.
+Set in `scenario.yaml`.
 
-- **steady** — `constant-arrival-rate` at `STEADY_RATE` for `STEADY_DURATION`. The
+- **steady** — `constant-arrival-rate` at `load.rate` for `STEADY_DURATION`. The
   headline comparison.
 - **capacity** — `ramping-arrival-rate` from `CAPACITY_START_RATE` to
   `CAPACITY_PEAK_RATE` in `CAPACITY_STEPS` equal steps. Expected to push past what the
@@ -102,7 +102,7 @@ Set in `scenario.env`.
 - **smoke** — 1 VU, 30 iterations, seven checks covering status, content type,
   document shape, interpolation, and the absence of unrendered placeholders.
 
-`STEADY_RATE` starts at a placeholder value. Run the capacity test first on a given
+`load.rate` starts at a placeholder value. Run the capacity test first on a given
 host and set it just below the knee, so a healthy baseline drops no iterations and
 there is headroom for tuning to show.
 

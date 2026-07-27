@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Name}} — octo performance</title>
+<style>{{.CSS}}</style>
+</head>
+<body>
+<main>
+
+<h1>{{.Name}}</h1>
+<p class="question">{{.Question}}</p>
+
+{{/* The verdict is a sentence, not a table. A reader who stops here should still
+     have the answer. */}}
+<div class="verdict {{if eq .Counts.Ran .Counts.Excluded}}void{{else if .Regressions}}regressed{{else}}clean{{end}}">
+  {{.Verdict}}
+</div>
+
+{{if .Warnings}}
+<ul class="warnings">
+  {{range .Warnings}}<li>{{.}}</li>{{end}}
+</ul>
+{{end}}
+
+{{/* ---------------------------------------------------------------- matrix -- */}}
+<h2>Regression matrix</h2>
+<p class="small muted">
+  Every arm against <strong>{{.Baseline}}</strong>, on the cells that passed their gates.
+  A delta inside its noise band is labelled noise and is never styled as a result —
+  the band is the wider of a 2% floor and the repetition-to-repetition spread the arms
+  themselves showed.
+</p>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr>
+      <th>Scenario</th><th>Arm</th><th>Metric</th>
+      <th class="n">{{.Baseline}}</th><th class="n">arm</th>
+      <th class="n">delta</th><th class="n">band</th><th>call</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range $s := .Scenarios}}
+    {{if $s.Comparisons}}
+      {{range $c := $s.Comparisons}}
+      <tr>
+        <td>{{$s.Scenario}}</td>
+        <td>{{$c.Arm}}</td>
+        <td>{{$c.Metric}} <span class="muted">{{$c.Unit}}</span></td>
+        <td class="n">{{num $c.BaselineMedian}}</td>
+        <td class="n">{{num $c.ArmMedian}}</td>
+        <td class="n {{deltaCls $c.Label}}">{{pct $c.DeltaPct}}</td>
+        <td class="n muted">{{pctAbs $c.NoiseBandPct}}</td>
+        <td><span class="tag {{deltaCls $c.Label}}">{{$c.Label}}</span>
+          {{if $c.Reason}}<div class="reason">{{$c.Reason}}</div>{{end}}</td>
+      </tr>
+      {{end}}
+    {{else}}
+      <tr>
+        <td>{{$s.Scenario}}</td>
+        <td colspan="7" class="muted">no comparison: fewer than two arms produced usable cells</td>
+      </tr>
+    {{end}}
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+{{/* --------------------------------------------------------------- detail -- */}}
+{{range $s := .Scenarios}}
+<h2>{{$s.Scenario}}</h2>
+<p class="small muted">
+  <span class="mono">{{$s.Route}}</span> ·
+  {{$s.Model}} model at {{$s.Rate}} req/s{{if $s.RateSource}} ({{$s.RateSource}}){{end}}
+</p>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Arm</th><th>Metric</th><th class="n">median</th><th>spread</th><th class="n">cells</th></tr>
+  </thead>
+  <tbody>
+  {{range $a := $s.Arms}}
+    {{range $i, $m := metrics $a}}
+    <tr>
+      {{if eq $i 0}}<td rowspan="8"><strong>{{$a.Arm}}</strong>
+        {{if $a.Excluded}}<div class="reason">{{$a.Excluded}} excluded</div>{{end}}</td>{{end}}
+      <td>{{$m.Label}} <span class="muted">{{$m.Unit}}</span></td>
+      {{if $m.Present}}
+        <td class="n">{{num $m.Summary.Median}}</td>
+        <td class="small muted">{{spread $m}}</td>
+        <td class="n">{{$m.Summary.N}}</td>
+      {{else}}
+        <td class="n muted">—</td>
+        <td class="small muted">{{$m.Absent}}</td>
+        <td class="n muted">0</td>
+      {{end}}
+    </tr>
+    {{end}}
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+{{/* Every repetition as a dot. Five points shown as five points, because with n=5
+     a box plot hides exactly the thing worth seeing: whether a delta comes from a
+     tight cluster or from two runs that disagree. */}}
+{{with $st := strip $s "throughput"}}{{if $st.Present}}
+<h4>{{$st.Label}} — every repetition</h4>
+<div class="chart">
+<svg width="100%" viewBox="0 0 660 {{$st.Height}}" role="img"
+     aria-label="throughput, one dot per repetition">
+  {{range $r := $st.Rows}}
+    <text class="arm" x="0" y="{{$r.Y}}" dy="4">{{$r.Arm}}</text>
+    <g transform="translate(90,0)">
+      {{if $r.HasCI}}<line class="ci" x1="{{$r.CILo}}" y1="{{$r.Y}}" x2="{{$r.CIHi}}" y2="{{$r.Y}}"/>{{end}}
+      {{range $p := $r.Points}}<circle class="dot" cx="{{$p.X}}" cy="{{$p.Y}}" r="4.5"><title>{{$p.Value}}</title></circle>{{end}}
+      <line class="median" x1="{{$r.MedianX}}" y1="{{sub $r.Y 9}}" x2="{{$r.MedianX}}" y2="{{add $r.Y 9}}"/>
+    </g>
+  {{end}}
+  <text class="axis" x="90" y="{{$st.Height}}">{{$st.Min}}</text>
+  <text class="axis" x="650" y="{{$st.Height}}" text-anchor="end">{{$st.Max}} {{$st.Unit}}</text>
+</svg>
+</div>
+{{end}}{{end}}
+
+{{with $st := strip $s "p95"}}{{if $st.Present}}
+<h4>{{$st.Label}} — every repetition</h4>
+<div class="chart">
+<svg width="100%" viewBox="0 0 660 {{$st.Height}}" role="img"
+     aria-label="client p95, one dot per repetition">
+  {{range $r := $st.Rows}}
+    <text class="arm" x="0" y="{{$r.Y}}" dy="4">{{$r.Arm}}</text>
+    <g transform="translate(90,0)">
+      {{if $r.HasCI}}<line class="ci" x1="{{$r.CILo}}" y1="{{$r.Y}}" x2="{{$r.CIHi}}" y2="{{$r.Y}}"/>{{end}}
+      {{range $p := $r.Points}}<circle class="dot" cx="{{$p.X}}" cy="{{$p.Y}}" r="4.5"><title>{{$p.Value}}</title></circle>{{end}}
+      <line class="median" x1="{{$r.MedianX}}" y1="{{sub $r.Y 9}}" x2="{{$r.MedianX}}" y2="{{add $r.Y 9}}"/>
+    </g>
+  {{end}}
+  <text class="axis" x="90" y="{{$st.Height}}">{{$st.Min}}</text>
+  <text class="axis" x="650" y="{{$st.Height}}" text-anchor="end">{{$st.Max}} {{$st.Unit}}</text>
+</svg>
+</div>
+{{end}}{{end}}
+
+{{/* The comparison that would have caught 933 ms published against a runtime that
+     said 0.41 ms. Both numbers existed; only one was shown. */}}
+{{with $pairs := pair $s}}
+<h4>What the client saw, against what the runtime said</h4>
+<div class="panel">
+  <div class="bars">
+  {{range $p := $pairs}}
+    <span><strong>{{$p.Arm}}</strong> client p95</span>
+    <span><span class="bar client" style="display:block;width:{{$p.ClientWidth}}px"></span></span>
+    <span class="mono">{{$p.Client}} ms</span>
+
+    {{if $p.HasServer}}
+    <span class="muted">runtime mean flow</span>
+    <span><span class="bar server" style="display:block;width:{{$p.ServerWidth}}px"></span></span>
+    <span class="mono">{{$p.Server}} ms</span>
+
+    <span class="muted small">gap</span>
+    <span class="small muted">{{pctAbs $p.GapPct}} of the client figure is not runtime work</span>
+    <span class="mono">{{$p.Ratio}}</span>
+    {{else}}
+    <span class="muted">runtime mean flow</span>
+    <span class="small muted">{{$p.Absent}}</span>
+    <span class="mono">—</span>
+    {{end}}
+  {{end}}
+  </div>
+</div>
+{{end}}
+
+<h4>Order effect</h4>
+<p class="small muted">
+  Throughput regressed against execution position. This is what turns "we interleaved,
+  so trust us" into a number: if position explains much of the variance, the delta above
+  is partly a property of when a cell ran rather than of what it ran.
+</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Arm</th><th class="n">slope per cell</th><th class="n">r²</th></tr></thead>
+  <tbody>
+  {{range $a := $s.Arms}}
+    <tr>
+      <td>{{$a.Arm}}</td>
+      {{if $a.HasOrder}}
+        <td class="n">{{pct $a.OrderSlopePct}}</td>
+        <td class="n {{if gt $a.OrderR2 0.5}}warn{{end}}">{{num $a.OrderR2}}</td>
+      {{else}}
+        <td class="n muted">—</td><td class="n muted">too few cells</td>
+      {{end}}
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
+{{/* --------------------------------------------------------------- ledger -- */}}
+<h2>Validity ledger</h2>
+<p class="small muted">
+  Every cell that ran, including the ones excluded from everything above. Struck through
+  means excluded; it is still on disk and it is still here.
+  {{.Counts.Valid}} valid, {{.Counts.Suspect}} suspect, {{.Counts.Invalid}} invalid,
+  of {{.Counts.Ran}} run{{if ne .Counts.Ran .Counts.Planned}} and {{.Counts.Planned}} planned{{end}}.
+</p>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr>
+      <th class="n">#</th><th>Cell</th><th>Level</th>
+      <th class="n">achieved</th><th class="n">offered</th><th class="n">p95 ms</th>
+      <th class="n">VUs</th><th class="n">dropped</th><th>findings</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range $r := .Ledger}}
+    <tr {{if $r.Excluded}}class="excluded"{{end}}>
+      <td class="n">{{$r.Ordinal}}</td>
+      <td class="mono">{{$r.Cell}}</td>
+      <td><span class="tag {{levelCls $r.Level}}">{{$r.Level}}</span></td>
+      <td class="n">{{num $r.AchievedRPS}}</td>
+      <td class="n muted">{{num $r.OfferedRate}}</td>
+      <td class="n">{{num $r.ClientP95Ms}}</td>
+      <td class="n">{{$r.ObservedVUs}}<span class="muted">/{{$r.AllocVUs}}</span></td>
+      <td class="n">{{num $r.Dropped}}</td>
+      <td class="reason">{{if has $r.Reasons}}{{join $r.Reasons}}{{else}}—{{end}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+{{if .Calib}}
+<h2>Gate calibration</h2>
+<p class="small muted">
+  How often each gate fired across this campaign. The thresholds ship deliberately loose,
+  because nobody has measured what the right ones are — this table is how they stop being
+  guesses. A gate that fires on every cell is mis-set; one that never fires is untested.
+</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Gate</th><th class="n">fired</th><th class="n">of</th><th>levels</th><th>example</th></tr></thead>
+  <tbody>
+  {{range $g := .Calib}}
+    <tr>
+      <td class="mono">{{$g.Gate}}</td>
+      <td class="n">{{$g.Fired}}</td>
+      <td class="n muted">{{$g.Cells}}</td>
+      <td>{{join $g.Levels}}</td>
+      <td class="reason">{{$g.Example}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
+{{if .Rates}}
+{{/* ------------------------------------------------------------------ rates -- */}}
+<h2>How each rate was chosen</h2>
+<p class="small muted">
+  Every arm of a scenario is offered the same rate, so this one number decides whether
+  the scenario's whole comparison means anything. The old lab carried
+  <span class="mono">STEADY_RATE=16000</span>, calibrated once on a laptop the day before
+  it stopped being true; by the next day every cell at that rate was shedding hundreds of
+  thousands of iterations, and nothing in a published result said so.
+</p>
+<div class="scroll">
+<table>
+  <thead><tr>
+    <th>Scenario</th><th class="n">rate</th><th>source</th><th class="n">ceiling</th><th>what the ramp found</th>
+  </tr></thead>
+  <tbody>
+  {{range $r := .Rates}}
+    <tr>
+      <td class="mono">{{$r.Scenario}}</td>
+      <td class="n">{{num $r.Rate}}<span class="muted"> req/s</span></td>
+      <td>
+        {{if eq $r.Source "measured"}}
+          <span class="tag good">measured</span>
+          {{if $r.Fraction}}<span class="small muted">{{pctAbs (mul $r.Fraction 100)}} of it</span>{{end}}
+        {{else}}
+          <span class="tag noise">declared</span>
+        {{end}}
+      </td>
+      <td class="n">
+        {{if $r.KneeRate}}{{num $r.KneeRate}}
+          {{if not $r.KneeFound}}<span class="muted" title="the ramp held every rung, so this is a floor">+</span>{{end}}
+        {{else}}<span class="muted">—</span>{{end}}
+      </td>
+      <td class="reason">{{$r.Note}}</td>
+    </tr>
+    {{if $r.Steps}}
+    <tr class="sub">
+      <td colspan="5">
+        <table class="inner">
+          <thead><tr><th class="n">offered</th><th class="n">achieved</th><th class="n">ratio</th><th class="n">dropped</th><th class="n">mean ms</th><th>held</th></tr></thead>
+          <tbody>
+          {{range $s := $r.Steps}}
+            <tr>
+              <td class="n">{{num $s.Offered}}</td>
+              <td class="n">{{num $s.Achieved}}</td>
+              <td class="n">{{pctAbs (mul $s.Ratio 100)}}</td>
+              <td class="n">{{num $s.Dropped}}</td>
+              <td class="n">{{num $s.LatencyMs}}</td>
+              <td>{{if $s.Held}}<span class="tag good">held</span>{{else}}<span class="tag bad">no</span> <span class="reason">{{$s.Why}}</span>{{end}}</td>
+            </tr>
+          {{end}}
+          </tbody>
+        </table>
+      </td>
+    </tr>
+    {{end}}
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
+{{/* ----------------------------------------------------------- provenance -- */}}
+<h2>Provenance</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Arm</th><th>Version</th><th>Config</th><th>Artifact</th><th>Admin port</th><th>Metrics</th></tr></thead>
+  <tbody>
+  {{range $a := .Arms}}
+    <tr>
+      <td><strong>{{$a.Name}}</strong></td>
+      <td class="mono">{{$a.Version}}</td>
+      <td>{{$a.Mode}}</td>
+      <td class="mono">{{short $a.SHA256}}</td>
+      <td>{{if $a.AdminPort}}yes{{else}}<span class="muted">no</span>{{end}}</td>
+      <td>{{if $a.Metrics}}yes{{else}}<span class="muted">no</span>{{end}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+<dl class="provenance">
+  <dt>plan</dt><dd>{{.PlanHash}}</dd>
+  <dt>order</dt><dd>{{.Order}}{{if .OrderReason}} — {{.OrderReason}}{{end}}</dd>
+  <dt>repetitions</dt><dd>{{.Reps}} per arm per scenario</dd>
+  <dt>ran</dt><dd>{{.StartedAt.Format "2006-01-02 15:04:05 MST"}} → {{.EndedAt.Format "15:04:05"}} ({{dur .Elapsed}})</dd>
+  <dt>harness</dt><dd>{{.Harness.Version}}{{if .Harness.Commit}} ({{short .Harness.Commit}}){{end}}{{if .Harness.Dev}} — dev build, not publishable{{end}}</dd>
+  <dt>gates</dt><dd>{{if .ObserveOnly}}observe mode{{else}}enforcing{{end}}</dd>
+</dl>
+
+{{if .Notes}}<p class="small">{{.Notes}}</p>{{end}}
+
+<footer>
+  Generated {{.Generated}} by the octo performance harness.
+  Every number above carries its verdict and its dispersion; there is no code path that
+  emits a bare point estimate.
+</footer>
+
+</main>
+</body>
+</html>

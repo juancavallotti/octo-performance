@@ -1,0 +1,36 @@
+# A short campaign for checking the harness against the real runtime on one machine.
+#
+# It is not a source of numbers and the gates will say so: the generator shares a host
+# with the subject, which is the arrangement that made every result in the old lab
+# bimodal. What it does prove is that the whole procedure works end to end against real
+# octo binaries — capabilities probed from the artifact, argv assembled per arm,
+# readiness detected, the runtime's own metrics differenced over a detected window, and
+# a verdict attached to every cell.
+#
+#   perf run --campaign campaigns/smoke-local.yaml
+name: smoke-local
+question: "Does the harness produce a complete, correctly-gated cell against real octo?"
+
+scenarios: [001-template-page]
+
+arms:
+  - name: "0.5.0"
+    binary: {version: "0.5.0"}
+    config: {mode: baseline}
+  - name: "0.6.0"
+    binary: {version: "0.6.0"}
+    config: {mode: baseline}
+
+reps: 2
+cooldown: 2s
+
+# An explicit rate, which switches off the scenario's calibration. Deliberately far
+# below anything interesting: this campaign is testing the harness, and a rate that
+# stressed the subject would only be testing the laptop.
+load:
+  rate: 500
+  duration: 12s
+  warmup: 3s
+
+gates:
+  observeOnly: true

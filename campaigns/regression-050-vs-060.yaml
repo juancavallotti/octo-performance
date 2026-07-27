@@ -1,0 +1,46 @@
+# Did 0.6.0 regress against 0.5.0?
+#
+# This file is the campaign: what is being compared, how many times, in what order, and
+# on what hardware. It is archived verbatim beside the result, so the intent of a run is
+# recoverable from the run — which is the thing the old lab's directory-name labels
+# (-mON, -mOFF, -probesonly, -metricson) could never be.
+
+name: regression-050-vs-060
+question: Did 0.6.0 regress against 0.5.0 on any scenario?
+
+scenarios:
+  - 001-template-page
+
+arms:
+  - name: "0.5.0"
+    binary: {version: "0.5.0"}
+    config: {mode: baseline}
+  - name: "0.6.0"
+    binary: {version: "0.6.0"}
+    config: {mode: baseline}
+
+# Five repetitions, arms rotating between them. Three was the old minimum and it was
+# not enough: the deltas it produced sat well inside the spread of the measurements
+# they were drawn from.
+reps: 5
+cooldown: 30s
+
+load:
+  duration: 60s
+
+topology:
+  runner:
+    kind: ssh
+    addr: 10.128.0.2
+    user: perf
+  subject:
+    kind: ssh
+    addr: 10.128.0.3
+    user: perf
+
+gates:
+  # The first campaigns record every gate's evidence without excluding anything, so the
+  # thresholds can be set from the observed distribution rather than guessed. Nobody has
+  # measured what a healthy runner-CPU ceiling looks like on this hardware, because the
+  # hardware is new.
+  observeOnly: true

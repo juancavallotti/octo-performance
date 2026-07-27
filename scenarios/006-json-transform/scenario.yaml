@@ -1,0 +1,61 @@
+# Scenario 006 — JSON payload transformation.
+#
+# CEL's native .map() over a document of records. The flow never blocks, so this is the
+# control that makes scenario 005's tuning result credible: extra workers here should do
+# nothing but add scheduling overhead, and "tuning does not help here" is a result worth
+# publishing.
+#
+# Paired with scenario 007, which sends the identical records as CSV. At the same rung
+# the two offer the same load over the same data and what separates them is the input
+# format alone — an invariant the harness now enforces, because both bodies come from
+# one generator.
+
+route: /transform
+readyRoute: /health
+
+request:
+  method: POST
+  contentType: application/json
+  payload:
+    kind: json-records
+    # A rung on the size ladder, in bytes. Roughly 9 records per KB:
+    #   1024    ->    ~9 records
+    #   102400  ->  ~750 records
+    #   1048576 -> ~7700 records
+    bytes: 1024
+
+tunables:
+  - workers
+  - buffer
+  - pool
+
+load:
+  test: steady
+  model: open
+
+  calibrate: true
+  calibrateFraction: 0.5
+
+  duration: 60s
+  warmup: 10s
+
+  expectedLatency: 5ms
+  vuCap: 16000
+
+capacity:
+  startRate: 200
+  peakRate: 12000
+  steps: 10
+  dwell: 15s
+
+thresholds:
+  p95: 50ms
+  p99: 120ms
+
+calibration: |
+  The old lab ran 4,000 req/s, from 11,659 req/s measured at 4 VUs with the 1 KB payload
+  on m1pro-16gb against 0.4.3 — with the generator on the same host. Generator headroom
+  matters more here than in most scenarios: k6 had to serialise the request body every
+  iteration, so an over-ambitious rate measured k6. That specific hazard is now gone —
+  the body is built once, in Go, and handed to k6 as a file — but the rate is still
+  measured per campaign rather than inherited.

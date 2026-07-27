@@ -1,0 +1,31 @@
+# The single source of truth for this integration. Both arms are derived from it:
+# baseline strips the tunables so the runtime uses its own defaults, tuned rewrites
+# them as literals.
+service:
+  name: perf-fake-page
+  environment: benchmark
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+flows:
+  - name: page
+    workers: 8
+    buffer: 64
+    pool: 8
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /page
+    process:
+      - type: set-body
+        settings:
+          body: ok

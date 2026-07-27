@@ -1,1 +1,0 @@
-{"workers": "64", "buffer": "64", "pool": "8", "maxOpenConns": "25", "maxIdleConns": "25"}

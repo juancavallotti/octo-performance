@@ -6,7 +6,7 @@
 # second, competing limit in `maxOpenConns`: more workers than connections just
 # queues on the pool instead of the channel.
 #
-# TUNABLES (see scenario.env) therefore spans both: workers/buffer/pool on the
+# tunables (see scenario.yaml) therefore span both: workers/buffer/pool on the
 # flow, maxOpenConns/maxIdleConns on the connector.
 
 service:

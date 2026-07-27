@@ -1,0 +1,86 @@
+# Scenario 005 — HTTP proxy. The canonical API-gateway shape.
+#
+# The backend sleeps for 70 ms, and everything about this scenario follows from that: it
+# is long enough that holding requests in flight, not computing them, is what the runtime
+# is being asked to do. Out of the box the flow blocks for 70 ms on 8 workers, so it
+# cannot exceed 8 / 0.070 ≈ 114 req/s no matter how much load is offered — measured at
+# 107.5 req/s and flat from 8 VUs to 200. With workers raised it reached ~1,780 req/s.
+#
+# This is the scenario where tuning has the largest effect and where an untuned arm
+# genuinely saturates. Its dropped iterations are real server saturation, not the
+# generator artifact that invalidated the old lab's numbers: no VU pool can sustain
+# 800 req/s against a hard 108 req/s ceiling.
+
+route: /proxy/acct-42
+
+# The measured route reaches the backend, so probing it for readiness would report the
+# backend's health rather than the runtime's.
+readyRoute: /health
+
+# A bare GET. The proxy forwards; there is nothing to send.
+
+tunables:
+  - workers
+  - buffer
+  - pool
+
+deps:
+  setup: setup.sh
+  teardown: teardown.sh
+  env:
+    BACKEND_PORT: "9090"
+    BACKEND_DELAY: 70ms
+    # 1 KB is a typical API response. Raise it to 1048576 for the large-payload case,
+    # which measures copying rather than concurrency.
+    BACKEND_SIZE: "1024"
+    # Substituted by the harness from the topology; the runtime reads the same string
+    # the setup script bound to.
+    BACKEND_URL: "http://${DEPS_HOST}:9090"
+  note: |
+    The backend is a separate process so its cost never lands in the runtime's CPU
+    sample. It is a sleeping server rather than a working one precisely to keep host
+    contention small — but on a colocated topology that contention is not zero, and on a
+    split topology the backend belongs on the deps host.
+
+load:
+  test: steady
+  model: open
+
+  # Deliberately NOT calibrated to a fraction of the knee here, and this is the one
+  # scenario where that is right.
+  #
+  # A calibrated rate is chosen so a healthy arm is comfortable. This scenario's result
+  # is that the two arms cannot both be comfortable: 800 req/s sits between the untuned
+  # ceiling of ~108 and the tuned ~1,780, so the tuned arm holds it and the untuned arm
+  # sheds roughly 85% of the offered load. Calibrating against either arm would erase
+  # the finding — against the untuned arm the rate collapses to ~54 req/s and the tuned
+  # arm looks idle; against the tuned arm the untuned one is merely more saturated.
+  #
+  # The capacity ramp still runs and is published, because the two ceilings ARE the
+  # result. What is fixed is the rate the comparison is made at.
+  rate: 800
+
+  duration: 60s
+  warmup: 10s
+
+  # Dominated by the backend's 70 ms, not by the runtime.
+  expectedLatency: 90ms
+  vuCap: 16000
+
+# The ramp still runs and is published even though the steady rate is fixed: the two
+# arms' ceilings ARE this scenario's result, and the ramp is what measures them.
+capacity:
+  startRate: 50
+  peakRate: 3000
+  steps: 10
+  dwell: 15s
+
+thresholds:
+  # A pass means the proxy added little to the backend's own 70 ms.
+  p95: 200ms
+  p99: 500ms
+
+calibration: |
+  Fixed at 800 req/s by design, not by measurement. See the note on load.rate: the gap
+  between the untuned ceiling (~108 req/s) and the tuned one (~1,780 req/s) is what this
+  scenario reports, and a rate chosen from either arm's knee would hide it.
