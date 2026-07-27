@@ -63,9 +63,21 @@ resource "google_compute_firewall" "internal" {
     ports = [
       "8080",  # the workload
       "39999", # the runtime's admin port: healthz, readyz, metrics
-      "5432",  # postgres, scenario 003
-      "9090",  # the slow backend, scenario 005
-      "22",    # the harness drives the subject over ssh from the runner
+      # Postgres for scenario 003, and 55432 is not a typo. The scenario publishes the
+      # container on that port and its PG_DSN names it, so 5432 — which is what was
+      # opened here, and what anyone writing this list from memory would open — is a
+      # port nothing has ever listened on.
+      #
+      # The cost of the mismatch is not a clear error. octo starts, cannot reach its
+      # database, and answers /readyz with 503 "starting" until the harness gives up
+      # sixty seconds later, so the campaign reports the runtime as slow to start rather
+      # than the network as closed. It failed at cell 5 of 14, twenty minutes in.
+      #
+      # This list duplicates knowledge that lives in the scenarios. Anything added to
+      # scenarios/*/setup.sh that listens on a new port has to be added here too.
+      "55432",
+      "9090", # the slow backend, scenario 005
+      "22",   # the harness drives the subject over ssh from the runner
     ]
   }
 }
