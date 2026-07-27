@@ -4,7 +4,26 @@ variable "project" {
 }
 
 variable "region" {
-  description = "Region for the network and the subnet."
+  description = <<-EOT
+    Region for the network and the subnet.
+
+    us-central1 and not us-west1, and the reason is worth stating because it is not a
+    preference. C4 is not offered in us-west1 at all, and GCP expresses that as a quota
+    of zero rather than as an unknown machine type:
+
+      Error: Quota 'CPUS_PER_VM_FAMILY' exceeded. Limit: 0.0 in region us-west1
+             dimensions = map[region:us-west1 vm_family:C4]
+
+    A limit of 0 reads like a quota problem and is really an availability one, so raising
+    it is not possible and requesting an increase will not help. Before moving this to a
+    region you prefer, confirm the family is there:
+
+      gcloud compute machine-types list \
+        --filter="name=c4-standard-8 AND zone~<region>" --format="value(zone)"
+
+    Empty output means pick another region, or move runner and subject to a family that
+    region does have — keeping the 2:1 ratio between them, which is the part that matters.
+  EOT
   type        = string
   default     = "us-central1"
 }
@@ -60,9 +79,30 @@ variable "deps_machine_type" {
     indicative — misleading": the old lab reached both through host.docker.internal, so
     the dependency shared the subject's cores and the measurement folded the database's
     CPU into the runtime's.
+
+    Deliberately NOT a C4, and that is the one thing to preserve if you change it.
+
+    GCP bills a CPUS_PER_VM_FAMILY quota per family per region, and a new project gets
+    24 for C4. The runner and the subject are what the campaign is actually about — one
+    must not bottleneck, the other is the thing being measured — and at c4-standard-16
+    plus c4-standard-8 they consume exactly the whole allowance. A c4-standard-4 for the
+    dependencies pushes the request to 28 and `terraform apply` dies partway through,
+    having already built the two machines that fit:
+
+      Error: Quota 'CPUS_PER_VM_FAMILY' exceeded. Limit: 24.0 ... vm_family:C4
+
+    Putting the dependency host in a different family takes it out of that budget
+    entirely. It costs nothing methodologically: this machine is held constant across
+    every arm, so its performance is not a variable the comparison can be confounded by
+    — only its *colocation with the subject* ever was, and that is what moving it off
+    the subject already fixed.
+
+    Note that C4 is then consumed exactly to the limit, so two campaigns cannot run
+    concurrently in one region on the default quota. Raise CPUS_PER_VM_FAMILY, or give
+    the second campaign a different region, rather than shrinking the runner.
   EOT
   type        = string
-  default     = "c4-standard-4"
+  default     = "n2-standard-4"
 }
 
 variable "enable_deps" {
@@ -88,6 +128,36 @@ variable "boot_disk_gb" {
   EOT
   type        = number
   default     = 100
+}
+
+variable "boot_disk_type" {
+  description = <<-EOT
+    Boot disk type for the runner and the subject.
+
+    Disk types are not portable across machine families, and the coupling is enforced at
+    create time rather than at plan time — so a mismatch costs an apply, not a plan:
+
+      Error 400: hyperdisk-balanced disk type cannot be used by n2-standard-4 machine type
+
+    hyperdisk-balanced goes with the C4 defaults above. Change this whenever you change
+    subject_machine_type or runner_machine_type to another family; pd-balanced is the
+    portable choice.
+  EOT
+  type        = string
+  default     = "hyperdisk-balanced"
+}
+
+variable "deps_boot_disk_type" {
+  description = <<-EOT
+    Boot disk type for the dependency host, which is its own variable precisely because
+    that host is deliberately in a different machine family — see deps_machine_type.
+
+    pd-balanced rather than hyperdisk-balanced: N2 does not accept hyperdisk, and this
+    disk carries a Postgres nobody is measuring. The two machines whose disk throughput
+    could show up in a result are the runner and the subject, and they keep hyperdisk.
+  EOT
+  type        = string
+  default     = "pd-balanced"
 }
 
 variable "ssh_user" {

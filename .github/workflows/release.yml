@@ -13,6 +13,16 @@ name: release
 on:
   push:
     branches: [main]
+  # A release job you cannot re-run is a trap: the first attempt at v0.1.0 tagged
+  # successfully and then failed in goreleaser, leaving a release with no assets and no
+  # way to retry it, because re-running the original run replays the workflow file from
+  # the commit that was broken.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach assets to, e.g. harness/v0.1.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -24,6 +34,7 @@ jobs:
     outputs:
       released: ${{ steps.rp.outputs['harness--release_created'] }}
       tag: ${{ steps.rp.outputs['harness--tag_name'] }}
+    if: github.event_name == 'push'
     steps:
       - uses: googleapis/release-please-action@v4
         id: rp
@@ -33,24 +44,74 @@ jobs:
 
   goreleaser:
     needs: release-please
-    if: needs.release-please.outputs.released == 'true'
+    if: always() && (needs.release-please.outputs.released == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
+      # The tag and the version are two different strings here, and conflating them is
+      # what broke the first release.
+      #
+      # The Go module lives in harness/, so Go's subdirectory rule requires its tags to
+      # be harness/vX.Y.Z — see docs/ARCHITECTURE.md. GoReleaser cannot parse that:
+      #
+      #   ⨯ release failed  error=failed to parse tag 'harness/v0.1.0' as semver
+      #
+      # Consuming a prefixed tag is `monorepo.tag_prefix`, a GoReleaser Pro feature.
+      # Skipping validation is not a fix either — it parses the whole tag as the version
+      # and emits dist/octo-perf-lab_harness/v0.1.0_linux_amd64.tar.gz, a name with a
+      # directory separator in it.
+      #
+      # So the tag keeps the prefix Go needs, and goreleaser is handed the bare semver
+      # it needs, and the two are reconciled here rather than by giving one of them up.
+      - id: v
+        run: |
+          tag="${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.release-please.outputs.tag }}"
+          version="${tag#harness/}"
+          version="${version#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publishing $version from tag $tag"
+
       - uses: actions/checkout@v4
         with:
-          # goreleaser derives the version from the tag, so it needs the full history
-          # and the tag that release-please just pushed.
+          # Full history because goreleaser reads the tag, and the tag itself because
+          # main has already moved past it by the time this runs.
           fetch-depth: 0
-          ref: ${{ needs.release-please.outputs.tag }}
+          ref: ${{ steps.v.outputs.tag }}
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: harness/go.mod
           cache-dependency-path: harness/go.sum
 
+      # Build and archive only. Publishing is done below against the release
+      # release-please already created, so there is one release per version carrying
+      # both the changelog and the artifacts — not two that disagree.
+      #
+      # validate is skipped because the checked-out tag deliberately does not match
+      # GORELEASER_CURRENT_TAG. The checks it covers — a dirty tree, an untagged commit —
+      # cannot apply to a fresh checkout of a tag.
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --skip=publish,validate
+        env:
+          GORELEASER_CURRENT_TAG: v${{ steps.v.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # --clobber so a retry replaces assets rather than failing on the ones that
+      # uploaded before whatever went wrong the first time.
+      - run: gh release upload "${{ steps.v.outputs.tag }}" dist/*.tar.gz dist/checksums.txt --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The startup scripts fetch by exact filename and verify against checksums.txt, so
+      # a release that published under a name they do not build is a release that fails
+      # at boot, hours before anyone finds out.
+      - name: the archive is named what install-lab.sh will ask for
+        run: |
+          expected="octo-perf-lab_${{ steps.v.outputs.version }}_linux_amd64.tar.gz"
+          gh release view "${{ steps.v.outputs.tag }}" --json assets --jq '.assets[].name' | grep -qx "$expected" \
+            || { echo "no asset named $expected on ${{ steps.v.outputs.tag }}"; exit 1; }
+          echo "ok: $expected"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

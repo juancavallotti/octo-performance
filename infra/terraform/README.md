@@ -9,7 +9,15 @@ after the machines are gone.
 |---|---|---|---|
 | runner | `c4-standard-16` | `perf`, `k6`, and a sampler watching the runner itself | yes |
 | subject | `c4-standard-8` | `octo`, and nothing else | no |
-| deps | `c4-standard-4` | Postgres and the slow backend, for scenarios 003 and 005 | no |
+| deps | `n2-standard-4` | Postgres and the slow backend, for scenarios 003 and 005 | no |
+
+The deps host is not a C4, and that is on purpose. GCP meters a `CPUS_PER_VM_FAMILY`
+quota per family per region, and a new project gets 24 for C4 — which the runner and
+the subject consume exactly, between them. A C4 dependency host makes the request 28 and
+`terraform apply` fails partway through, after building the two machines that fit.
+Holding the dependencies in another family costs nothing methodologically: that machine
+is identical across every arm, so it cannot confound a comparison. Only its *colocation
+with the subject* ever could, and moving it off the subject is what fixed that.
 
 The runner is deliberately twice the subject, and it samples its own CPU so that "the
 generator had headroom" is evidence rather than an assumption. That is the whole reason

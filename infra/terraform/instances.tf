@@ -34,7 +34,7 @@ resource "google_compute_instance" "runner" {
     initialize_params {
       image = var.image
       size  = var.boot_disk_gb
-      type  = "hyperdisk-balanced"
+      type  = var.boot_disk_type
     }
   }
 
@@ -86,7 +86,7 @@ resource "google_compute_instance" "subject" {
     initialize_params {
       image = var.image
       size  = var.boot_disk_gb
-      type  = "hyperdisk-balanced"
+      type  = var.boot_disk_type
     }
   }
 
@@ -128,7 +128,9 @@ resource "google_compute_instance" "deps" {
     initialize_params {
       image = var.image
       size  = var.boot_disk_gb
-      type  = "hyperdisk-balanced"
+      # Its own variable, because this host is deliberately in a different machine
+      # family from the other two and disk types are not portable across families.
+      type = var.deps_boot_disk_type
     }
   }
 
