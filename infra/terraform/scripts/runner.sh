@@ -16,7 +16,12 @@ apt-get install -y --no-install-recommends ca-certificates curl gnupg git jq
 # k6 from Grafana's repository rather than a tarball, so the version is upgradable in
 # place and `k6 version` reports something the report can record as provenance.
 mkdir -p /etc/apt/keyrings
-curl -fsSL https://dl.k6.io/key.gpg | gpg --dearmor -o /etc/apt/keyrings/k6.gpg
+# --yes because this script has to be re-runnable. gpg refuses to overwrite an existing
+# keyring and exits, which breaks the pipe and surfaces as `curl: (23) Failure writing
+# output to destination` — a message that names curl for a failure in gpg. A startup
+# script that only works on a pristine boot cannot repair a machine, and recreating the
+# VM to fix a half-configured one costs the campaign that was running on it.
+curl -fsSL https://dl.k6.io/key.gpg | gpg --dearmor --yes -o /etc/apt/keyrings/k6.gpg
 echo "deb [signed-by=/etc/apt/keyrings/k6.gpg] https://dl.k6.io/deb stable main" \
   > /etc/apt/sources.list.d/k6.list
 apt-get update -y
