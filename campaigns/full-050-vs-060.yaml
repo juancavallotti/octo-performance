@@ -1,0 +1,64 @@
+# Every scenario, both versions, on hardware that can answer the question.
+#
+# This is the campaign the rebuild exists for. Two things come out of it that the old lab
+# could not produce:
+#
+# The knee. Six of the seven scenarios calibrate, which means each one is driven up a
+# staircase of offered rates until it stops holding — and the rate where it folds is the
+# capacity number. It is measured per campaign rather than remembered, because a rate
+# calibrated once and reused is a rate that silently stops being true: the old lab
+# carried STEADY_RATE=16000 from a laptop for its entire life.
+#
+# The comparison. Both arms then run at the same fraction of that knee, so 0.5.0 and
+# 0.6.0 are asked for identical work rather than each finding its own level — which is
+# what makes a difference between them attributable to the version.
+#
+# Read the capacity curves in the report appendix for "how far can it go", and the
+# regression matrix for "did it get worse". They answer different questions and the
+# second one is meaningless without the A/A control having passed first.
+
+name: full-050-vs-060
+question: "How far does each scenario go, and did 0.6.0 give any of it back?"
+
+scenarios:
+  - 001-template-page
+  - 002-fanout-transform
+  - 003-postgres-crud
+  - 004-queue-roundtrip
+  - 005-http-proxy
+  - 006-json-transform
+  - 007-csv-transform
+
+arms:
+  - name: "0.5.0"
+    binary: {version: "0.5.0"}
+    config: {mode: baseline}
+  - name: "0.6.0"
+    binary: {version: "0.6.0"}
+    config: {mode: baseline}
+
+# Five, and arms rotating between repetitions. Three was the old minimum and it was not
+# enough — the deltas it produced sat well inside the spread of the measurements they
+# were drawn from.
+reps: 5
+cooldown: 30s
+
+load:
+  duration: 60s
+
+gates:
+  # Still observe-only. Every gate records its evidence and nothing is excluded from the
+  # headline, because the thresholds that belong on this hardware have never been
+  # measured — this campaign is what produces the distribution to set them from. Read the
+  # validity ledger as information, not as a verdict, and tighten afterwards.
+  observeOnly: true
+
+notes: |
+  Baseline configuration only: every tunable stripped, nothing declared. That is the
+  floor, not the ceiling — `workers`, `buffer`, `pool` and the connector settings are
+  what a tuned run would move, and 002/003 are the scenarios where they should matter
+  most. Run this first to know where the floor is, then tune against it.
+
+  005-http-proxy does not calibrate. It is pinned at 800 req/s because its baseline is
+  capped near 108 by a deliberately slow backend, so a capacity ramp there would be
+  measuring the backend rather than the runtime.
