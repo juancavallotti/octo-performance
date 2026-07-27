@@ -353,6 +353,36 @@ The campaign id is content-addressed and deliberately **not** version-stamped. T
 one octo version into the directory name, which is precisely why comparing two versions took two runs
 plus a separate compare step. A campaign compares versions; versions live per-arm.
 
+## The report
+
+One file. No stylesheet, no script tag, no font, no image request — asserted in tests rather than
+reviewed, because a page with a broken external reference renders perfectly on the machine that made
+it and degrades silently everywhere else.
+
+`result.Rollup` computes; `report` formats. The only arithmetic in the report package turns a value
+into a pixel position. That line exists because of where `report.py` ended up: a thousand lines, a
+library three other scripts imported, and the only place several published numbers were calculated.
+
+In order:
+
+1. **The verdict** — a sentence, before any table. It distinguishes "no regression was found" from
+   "nothing could be established", and checks the second first ([L25](LEARNINGS.md#l25)).
+2. **Warnings** — colocation, observe mode, blocked order, a dev-build harness, arms that cannot
+   serve metrics. The facts that qualify every number below them.
+3. **Regression matrix** — every arm against the baseline, with the delta, the noise band it was
+   measured against, and the call. A delta inside its band is labelled noise and is never styled as
+   a result.
+4. **Per scenario** — medians with dispersion and n, a strip plot showing *every* repetition as a
+   dot, client p95 against the runtime's own mean flow duration side by side, and the order effect
+   as a slope and an r².
+5. **Validity ledger** — every cell, struck through if excluded, with the finding that excluded it.
+6. **Gate calibration** — how often each gate fired, which is how a threshold stops being a guess.
+7. **Provenance** — artifact digests, plan hash, execution order, harness version.
+
+With five repetitions the honest chart is five points. A box plot would hide exactly the judgement
+the old point estimates removed: whether a delta comes from a tight cluster or from two runs that
+disagree.
+
 ## Testing
 
 | Layer | How |

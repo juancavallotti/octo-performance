@@ -17,6 +17,7 @@ import (
 	"github.com/juancavallotti/octo-performance/harness/internal/gate"
 	"github.com/juancavallotti/octo-performance/harness/internal/loadgen"
 	"github.com/juancavallotti/octo-performance/harness/internal/plan"
+	"github.com/juancavallotti/octo-performance/harness/internal/report"
 	"github.com/juancavallotti/octo-performance/harness/internal/result"
 	"github.com/juancavallotti/octo-performance/harness/internal/spec"
 )
@@ -91,6 +92,7 @@ func cmdRun(args []string) error {
 	fmt.Printf("%s — %d cells into %s\n\n", c.Name, len(p.Cells), dir)
 
 	var peers []gate.Peer
+	var cells []*result.Cell
 	var completed, excluded int
 	for _, cell := range p.Cells {
 		out, err := r.RunCell(ctx, cell, peers)
@@ -105,6 +107,7 @@ func cmdRun(args []string) error {
 			continue
 		}
 		completed++
+		cells = append(cells, out)
 		if out.Verdict.Excluded() {
 			excluded++
 		}
@@ -115,15 +118,66 @@ func cmdRun(args []string) error {
 		}
 	}
 
-	fmt.Printf("\n%d of %d cells completed", completed, len(p.Cells))
+	// The roll-up and the report are written from whatever completed. A campaign cut
+	// short still answers what it managed to measure, and the ledger says how much
+	// that was — which is more than the old lab could do for a run that finished.
+	rolled := result.Rollup(rollupInput(c, p, cells), cells)
+	if err := result.WriteJSON(filepath.Join(dir, "campaign.json"), rolled); err != nil {
+		return err
+	}
+	html, err := report.Render(rolled)
+	if err != nil {
+		return err
+	}
+	reportPath := filepath.Join(dir, "report.html")
+	if err := os.WriteFile(reportPath, html, 0o644); err != nil {
+		return fmt.Errorf("writing the report: %w", err)
+	}
+
+	fmt.Printf("\n%s\n\n", rolled.Verdict)
+	fmt.Printf("%d of %d cells completed", completed, len(p.Cells))
 	if excluded > 0 {
 		fmt.Printf(", %d excluded by a gate", excluded)
 	}
-	fmt.Printf("\nartifacts: %s\n", dir)
+	fmt.Printf("\nreport: %s\n", reportPath)
 	if completed < len(p.Cells) {
 		return fmt.Errorf("%d cells did not complete", len(p.Cells)-completed)
 	}
 	return nil
+}
+
+// rollupInput carries what the cells cannot: the campaign's own declarations, and the
+// topology fact that qualifies every number in the report.
+func rollupInput(c *spec.Campaign, p *plan.Plan, cells []*result.Cell) result.RollupInput {
+	in := result.RollupInput{
+		Name:        c.Name,
+		Question:    c.Question,
+		PlanHash:    p.Hash,
+		Reps:        c.Reps,
+		Order:       string(c.Order),
+		OrderReason: c.OrderReason,
+		ObserveOnly: c.Gates.ObserveOnly,
+		Notes:       c.Notes,
+		Planned:     len(p.Cells),
+		Seed:        uint64(c.Seed) + 1,
+		Routes:      map[string]string{},
+	}
+	for i, a := range c.Arms {
+		in.Arms = append(in.Arms, a.Name)
+		if i == 0 {
+			// The first declared arm is the baseline: a comparison needs something
+			// to be a comparison against, and picking it by declaration order means
+			// the spec says which rather than the renderer guessing.
+			in.Baseline = a.Name
+		}
+	}
+	for _, cell := range p.Cells {
+		in.Routes[cell.ID.Scenario] = cell.Scenario.Route
+	}
+	// Colocation is the fact that qualifies everything else, so it is derived from
+	// the topology rather than left for a reader to infer from the machine names.
+	in.Colocated = c.Topology.Runner.Local() && c.Topology.Subject.Local()
+	return in
 }
 
 // gateConfig maps the campaign's thresholds onto the gate suite's.

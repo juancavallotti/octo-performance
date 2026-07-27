@@ -296,3 +296,22 @@ asserts a server mean that is present and non-zero.
 
 The general shape is worth more than the instance: an absent lookup and an absent phenomenon are
 indistinguishable unless something records which one happened. See also [L21](#l21).
+
+## L25 — "No regression was found" and "nothing could be established" are different sentences
+
+**Evidence.** The first campaign the roll-up rendered ran two repetitions per arm. Every comparison
+declined at the minimum-n rule — correctly, and saying so in its reason — so the campaign produced
+zero regressions. The verdict banner read: *"No regression found on any of the 1 scenarios: every
+delta is inside its noise band."* Not one delta had been tested against a noise band. The sentence
+was assembled by counting regressions and finding none.
+
+This is the most consequential false negative available to a lab. A wrong number invites checking;
+a confident "no regression" from evidence that decided nothing does not, and it is exactly the
+outcome a thin or interrupted campaign produces by default.
+
+**Enforced by.** `result.Evidence` counts comparisons that reached a decision separately from those
+that declined, and `verdictSentence` tests "nothing was established" **before** "nothing regressed" —
+the ordering is the fix, and the comment above it says so.
+`TestRollupSeparatesNothingEstablishedFromNoRegression` asserts the exact wording is absent, because
+the failure here is a sentence rather than a value. A campaign that decides some comparisons and
+declines others states both counts in the same sentence.
