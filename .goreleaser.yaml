@@ -36,28 +36,20 @@ builds:
       - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.commit={{.FullCommit}}
       - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.date={{.CommitDate}}
 
-  # perf-agent only ever runs on a Linux subject. Building it for darwin would invite
-  # someone to sample a laptop and compare the result against a VM.
-  - id: perf-agent
-    main: ./cmd/perf-agent
-    binary: perf-agent
-    env: [CGO_ENABLED=0]
-    goos: [linux]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
-    ldflags:
-      - -s -w
-      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.version={{.Version}}
-      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.commit={{.FullCommit}}
-      - -X github.com/juancavallotti/octo-performance/harness/internal/buildinfo.date={{.CommitDate}}
+# There is deliberately no second binary here.
+#
+# The plan called for a perf-agent on the subject, speaking a versioned NDJSON protocol
+# and supervising octo so that wait4 would yield exact whole-lifetime CPU. It was
+# dropped: the exactness is worth less than the cost, which is a second artifact whose
+# version can disagree with the runner's. A mismatched sampler does not fail — it
+# produces plausible data. perf reaches the subject over SSH and reads its /proc through
+# the same connection, and the cost denominator comes from differencing the cumulative
+# CPU counter, which is the same arithmetic the local sampler already does.
 
 archives:
   - id: perf
     ids: [perf]
     name_template: "perf_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-  - id: perf-agent
-    ids: [perf-agent]
-    name_template: "perf-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksums:
   # The startup scripts verify against this, so a truncated download fails at boot

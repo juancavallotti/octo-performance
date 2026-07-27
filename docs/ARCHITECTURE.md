@@ -25,8 +25,7 @@ the same procedure, and a publishing path that printed point estimates from satu
         │
         │  HTTP load, internal VPC, no external hop
         ▼
-  subject VM  c4-standard-8
-    ├─ perf-agent        supervises octo; samples /proc at 1 Hz; NDJSON over one ssh session
+  subject VM  c4-standard-8      nothing on it but the runtime under test
     └─ octo run --config … [--observability-addr :39999] [--metrics]
                          admin port serves /healthz, /readyz, and /metrics with --metrics
         │
@@ -78,12 +77,12 @@ harness — `feat(harness): …` — and goreleaser publishes the artifacts on t
 commit that adds a scenario or records a result is not a harness change and needs no
 prefix; the repository's sentence-subject style survives the prefix where one is needed.
 
-Because the infrastructure is ephemeral, every campaign starts on a bare machine. Both
-startup scripts download the same pinned release and verify it against the published
-checksums: the runner installs `perf` and k6, the subject installs `perf-agent`. There
-is no pushing binaries over SSH and nothing embedded in anything else. `perf` refuses to
-drive an agent whose protocol version differs from its own, so a half-applied upgrade
-fails at the handshake instead of producing plausible data.
+Because the infrastructure is ephemeral, every campaign starts on a bare machine. The
+runner's startup script installs the Go toolchain and k6, and `perf` is built from the
+checked-out repository — the version of the measuring instrument has to be pinned to the
+same commit as the scenarios it runs, and a harness release that disagrees with a
+scenario tree is a class of failure with no symptom. The subject's script installs
+nothing but the releases under test.
 
 The version *under test* lives in the campaign spec. The version of the *harness* lives
 in terraform, beside the machine shape — the right place for it, since changing either
@@ -99,15 +98,15 @@ measures.
 Paths below are relative to `harness/`.
 
 ```
-cmd/perf                  operator CLI: plan | run | resume | collect | report | doctor
-cmd/perf-agent            subject-side supervisor + sampler, installed by terraform
+cmd/perf                  operator CLI: plan | run | version
+cmd/fakeocto              a real octo-alike process, for testing the harness offline
 
 internal/buildinfo        the version stamped into a released binary
 internal/spec             campaign + scenario YAML: types, loading, defaulting, validation
 internal/plan             spec → ordered []Cell; interleaving; deterministic; content-hashed
 internal/render           integration.yaml → arm config (baseline strips / tuned rewrites)
 internal/exec             Runner: run a process and move bytes on a host. local + ssh.
-internal/agent            agent wire protocol, runner-side client, subject-side server
+internal/agent            1 Hz sampling of a host: /proc locally, /proc over a Runner remotely
 internal/subject          Target: octo lifecycle, capability detection, admin-port client
 internal/loadgen          LoadGenerator: k6 invocation, summary + time-series parsing, pool sizing
 internal/collect          runner-side collectors: prom scraper, runner host sampler
@@ -210,22 +209,28 @@ The fast iteration loop therefore exercises the same code as the eight-hour camp
 There is deliberately no `RemoteSampler`/`LocalSampler` split and no `target-native.sh` /
 `target-docker.sh` dispatch. One `Target`, one `Sampler`, parameterised by a `Runner`.
 
-## Why there is a second binary
+## Why there is no second binary
 
-`perf-agent` is installed on the subject by its own terraform startup script and driven over a
-single SSH session speaking NDJSON on stdio. No listener, no authentication story, nothing to
-secure — and no binary pushing, because the release pipeline already put it there. `perf` refuses
-to drive an agent reporting a different protocol version, so a half-applied upgrade fails at the
-handshake rather than producing plausible data.
+The plan called for a `perf-agent` on the subject: a supervisor speaking a versioned NDJSON
+protocol over one SSH session, and octo's parent, so `wait4` would yield exact whole-lifetime CPU
+and peak RSS. It was built as far as its identity command and then dropped.
 
-It earns its place three times over:
+What it buys is exactness in one number. What it costs is a second artifact on a machine the
+harness does not otherwise touch, whose version can disagree with the runner's — and a mismatched
+sampler does not fail. It produces plausible data, which is the failure mode this entire rebuild
+exists to eliminate. The protocol-version handshake was the mitigation, and a mitigation for a
+problem that need not exist is worse than not having the problem.
 
-- **It is octo's parent**, so `wait4` yields whole-lifetime user+sys CPU and max RSS directly. The
-  `/usr/bin/time` wrapper, `pgrep -P "$wrapper"`, `wrapper.pid` and the BSD-vs-GNU flag branch all
-  disappear — that mechanism was a genuine race.
-- **It measures the clock offset** at cell start and cell end ([L20](LEARNINGS.md#l20)).
-- It is Go, so `/proc` parsing is unit-tested against committed fixtures instead of being untested
-  `awk`.
+Instead `exec.SSH` carries process control and `agent.Remote` reads the subject's `/proc` through
+the same multiplexed connection, one round trip per sample. That is the same parse path the local
+sampler uses — `sampleFrom` is shared, and a test asserts the two agree over one fixture — because
+two parsers of one format agree until one of them is fixed.
+
+Whole-lifetime `rusage` is therefore unavailable over SSH, and is reported **absent** rather than
+filled in with the ssh client's own. The cost denominator comes from differencing octo's cumulative
+CPU counter across the measured window, which is the arithmetic the sampler already does and is
+accurate to the sampling interval. The clock offset is measured directly by `campaign.measureClock`,
+at cell start and cell end ([L20](LEARNINGS.md#l20)).
 
 ## Invariants
 
