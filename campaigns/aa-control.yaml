@@ -1,0 +1,55 @@
+# The harness measuring itself, and required to find nothing.
+#
+# Both arms are the same binary. Every scenario must come back NOISE. Any scenario that
+# reports a significant delta is reporting one between a version and itself, which means
+# the rig is measuring something other than the runtime — ordering, thermal drift,
+# generator feedback, a dependency warming up — and every comparison it produces is
+# worth exactly as much as this one is.
+#
+# Run this on new hardware before any campaign whose answer you intend to publish, and
+# again whenever the topology changes. It is the only check that can fail in a way that
+# invalidates results rather than merely flagging them, because it is the only one where
+# the correct answer is known in advance.
+#
+# This is what the lab it replaces never had. That lab published a 2.3x throughput
+# difference between two runs of a byte-identical binary as a version comparison; an A/A
+# control would have caught it on the first afternoon.
+
+name: aa-control
+question: "Does the harness report a difference where there cannot be one?"
+
+scenarios:
+  - 001-template-page
+
+arms:
+  # Deliberately identical. The names differ only so the report has two columns to put
+  # beside each other; the binary resolved for both is the same file.
+  - name: "0.5.0-a"
+    binary: {version: "0.5.0"}
+    config: {mode: baseline}
+  - name: "0.5.0-b"
+    binary: {version: "0.5.0"}
+    config: {mode: baseline}
+
+# The same repetition count and cooldown as a real campaign. A control run with fewer
+# reps than the campaigns it certifies proves less than those campaigns claim: the noise
+# band it measures would be wider than theirs, so deltas it calls noise might not be.
+reps: 5
+cooldown: 30s
+
+load:
+  duration: 60s
+
+# The topology comes from the command line, not from here. run.go builds it from
+# --subject-ssh and --deps-ssh, and records colocation from the hosts that actually ran
+# rather than from what a spec asked for — so an address written here would be archived
+# beside the result without ever having been contacted.
+
+gates:
+  observeOnly: true
+
+notes: |
+  Both arms are octo 0.5.0. The expected result is NOISE on every scenario and every
+  metric. Read the regression matrix first: if anything is labelled REGRESSION or
+  IMPROVEMENT, stop and fix the harness before running a campaign that compares two
+  different versions, because that campaign cannot distinguish its answer from this one.
