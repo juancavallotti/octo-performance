@@ -133,3 +133,23 @@ func TestScenarios006And007OfferTheSameClientSizing(t *testing.T) {
 		t.Errorf("different durations: %s vs %s", six.Load.Duration, seven.Load.Duration)
 	}
 }
+
+func TestAScenariosPathsAreAbsolute(t *testing.T) {
+	// A relative path is resolved against whatever working directory the process that
+	// receives it happens to have, and the processes that receive these are the octo
+	// runtime and a dependency setup script — neither of which runs where the harness
+	// does, and one of which may not even be on this machine.
+	//
+	// This has already cost two debugging sessions: a relative --config that resolved
+	// against the cell directory, and a setup.sh that could not be executed at all.
+	s, err := spec.LoadScenario(filepath.Join(scenariosDir, "003-postgres-crud"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(s.Dir) {
+		t.Errorf("scenario dir is relative: %s", s.Dir)
+	}
+	if !filepath.IsAbs(s.IntegrationPath()) {
+		t.Errorf("integration path is relative: %s", s.IntegrationPath())
+	}
+}

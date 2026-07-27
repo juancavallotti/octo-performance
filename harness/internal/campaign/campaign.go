@@ -885,6 +885,7 @@ func (r *Runner) evidence(out *result.Cell, cell plan.Cell, peers []gate.Peer) g
 func Peer(c *result.Cell) gate.Peer {
 	return gate.Peer{
 		CellID:          c.Slug(),
+		Scenario:        c.Scenario,
 		Arm:             c.Arm,
 		ObservedMaxVUs:  c.Headline.ObservedMaxVUs,
 		PreAllocatedVUs: c.Headline.PreAllocatedVUs,

@@ -1,0 +1,46 @@
+# A fast pass over every scenario, to prove the harness can run them at all.
+#
+# This is not a measurement and its numbers must not be read as one: eight-second
+# passes at a fixed low rate on a colocated laptop. What it checks is that each
+# scenario's config renders, its dependencies come up, its payload is accepted by the
+# route, and the runtime reports flows the harness can find metrics for.
+#
+# Naming a rate here is what makes it fast: an explicit rate displaces the scenarios'
+# calibrate flag, so no capacity ramp runs. A real campaign leaves it out.
+name: smoke-all
+question: "Can the harness run every scenario end to end?"
+
+scenarios:
+  - 001-template-page
+  - 002-fanout-transform
+  - 003-postgres-crud
+  - 004-queue-roundtrip
+  - 005-http-proxy
+  - 006-json-transform
+  - 007-csv-transform
+
+reps: 1
+cooldown: 2s
+
+arms:
+  - name: "0.5.0"
+    binary: { version: "0.5.0" }
+    config: { mode: baseline }
+  - name: "0.6.0"
+    binary: { version: "0.6.0" }
+    config: { mode: baseline }
+
+load:
+  rate: 200
+  duration: 8s
+  warmup: 2s
+
+gates:
+  # Every gate records its evidence; none escalates past Suspect. Thresholds ship
+  # loose because nobody has measured the right ones yet, and a smoke pass is the
+  # wrong place to discover that.
+  observeOnly: true
+
+notes: |
+  A plumbing check, not a result. Colocated, eight seconds a cell, one repetition —
+  every number here is inside its own noise.

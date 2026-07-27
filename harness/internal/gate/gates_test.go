@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -290,5 +291,42 @@ func TestExcludedOnlyForInvalid(t *testing.T) {
 	}
 	if !(Verdict{Level: Invalid}).Excluded() {
 		t.Fatal("invalid cells must be excluded")
+	}
+}
+
+func TestThePeerPoolCheckOnlyComparesTheSameScenario(t *testing.T) {
+	// Different workloads legitimately need different generator capacity: 001 offers a
+	// bare GET at sub-millisecond latency, 005 holds every request for 70 ms. Comparing
+	// across scenarios fires on every cell of every campaign, and a gate that always
+	// fires is a gate nobody reads — which is worse than not having it, because the
+	// incident it exists to catch then arrives inside the noise it generates.
+	e := Evidence{
+		Scenario: "001-template-page",
+		Load:     Load{ObservedMaxVUs: 20, PreAllocatedVUs: 20, MaxVUs: 200, OfferedRate: 200, AchievedRPS: 200},
+		Peers: []Peer{
+			{CellID: "005__a__rep1", Scenario: "005-http-proxy", ObservedMaxVUs: 200},
+		},
+	}
+	for _, f := range (GeneratorSaturation{}).Check(e) {
+		if strings.Contains(f.Summary, "differs") {
+			t.Errorf("a different scenario's pool was compared: %s", f.Summary)
+		}
+	}
+
+	// The same scenario still fires: this is the 1,600-against-7,113 incident.
+	e.Peers = []Peer{
+		{CellID: "001__a__rep1", Scenario: "001-template-page", ObservedMaxVUs: 200},
+	}
+	found := false
+	for _, f := range (GeneratorSaturation{}).Check(e) {
+		if strings.Contains(f.Summary, "differs") {
+			found = true
+			if f.Level != Invalid {
+				t.Errorf("a tenfold pool difference within one scenario is %s", f.Level)
+			}
+		}
+	}
+	if !found {
+		t.Error("a tenfold pool difference within one scenario was not reported")
 	}
 }

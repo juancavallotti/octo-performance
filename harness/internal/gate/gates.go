@@ -123,10 +123,20 @@ func (g GeneratorSaturation) Check(e Evidence) []Finding {
 		})
 	}
 
-	// The cross-cell check. Two cells of the same campaign whose pools differ by more
-	// than a factor are not measuring the same system, whatever the absolute
-	// thresholds say.
+	// The cross-cell check, and the one that catches the incident this lab was rebuilt
+	// around: 1,600 virtual users on one repetition and 7,113 on the next, same binary,
+	// a day apart. That is invisible from inside a single cell — both look like
+	// complete runs — so it needs siblings in scope.
+	//
+	// Siblings of the SAME scenario. Different workloads legitimately need different
+	// generator capacity: scenario 001 offers a bare GET at sub-millisecond latency
+	// while 005 holds every request for 70 ms, and their pools differ by more than a
+	// factor by design. Comparing across scenarios fires on every cell of every
+	// campaign, which is how a gate stops being read.
 	for _, p := range e.Peers {
+		if p.Scenario != e.Scenario {
+			continue
+		}
 		if p.ObservedMaxVUs <= 0 || e.Load.ObservedMaxVUs <= 0 {
 			continue
 		}

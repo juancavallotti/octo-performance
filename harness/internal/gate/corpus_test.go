@@ -190,8 +190,12 @@ func TestPeerComparisonCatchesItWhenThresholdsAreTooLoose(t *testing.T) {
 	clean := evidenceFor(t, "clean")
 	collapsed := evidenceFor(t, "collapsed")
 
+	// Both specimens are 001-template-page, which is what makes them comparable at
+	// all: the check is scoped to one scenario, because different workloads need
+	// different generator capacity by design.
 	collapsed.Peers = []Peer{{
 		CellID:          clean.CellID,
+		Scenario:        clean.Scenario,
 		ObservedMaxVUs:  clean.Load.ObservedMaxVUs,
 		PreAllocatedVUs: clean.Load.PreAllocatedVUs,
 	}}

@@ -462,7 +462,17 @@ func LoadScenario(dir string) (*Scenario, error) {
 	if err := dec.Decode(&s); err != nil {
 		return nil, fmt.Errorf("spec: parsing %s: %w", path, err)
 	}
+	// Absolute from here on. Every path derived from a scenario — its integration,
+	// its setup script — is eventually handed to another process, and often to one on
+	// another machine; a relative path is then resolved against a working directory
+	// that is not this one, silently, at the point a campaign is already running.
+	//
+	// The subject already learned this once: a relative --config resolved against the
+	// cell directory rather than the harness's, and every cell failed to start.
 	s.Dir = dir
+	if abs, err := filepath.Abs(dir); err == nil {
+		s.Dir = abs
+	}
 	s.ID = filepath.Base(strings.TrimSuffix(dir, string(filepath.Separator)))
 	if err := s.Validate(); err != nil {
 		return nil, err

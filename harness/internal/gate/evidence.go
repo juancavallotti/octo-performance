@@ -167,7 +167,12 @@ type Clock struct {
 
 // Peer is a sibling cell, carrying only what cross-cell checks need.
 type Peer struct {
-	CellID          string
+	CellID string
+	// Scenario is what makes a peer comparable. Two cells of the same campaign on
+	// different workloads legitimately need different generator capacity — 001 offers
+	// a bare GET and 005 holds every request for 70 ms — so comparing their pools
+	// answers a question nobody asked.
+	Scenario        string
 	Arm             string
 	ObservedMaxVUs  int
 	PreAllocatedVUs int
