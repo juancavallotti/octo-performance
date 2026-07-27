@@ -30,3 +30,11 @@ harness/bin/
 
 # Campaign output is generated; results worth keeping are published under results/.
 campaigns/out/
+
+# Terraform working state. The infrastructure is ephemeral and single-operator, so the
+# state file is a local artifact of one campaign rather than something to share.
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfvars
+infra/out/
