@@ -105,6 +105,34 @@ func TestARemoteCommandReplacesTheShellSoTheSignalReachesTheProgram(t *testing.T
 	}
 }
 
+func TestARemoteCommandExecsEnvRatherThanAskingEnvForExec(t *testing.T) {
+	// `env K=V exec prog` asks env to run a program called "exec". It is a shell
+	// builtin, so no such binary exists and the command dies with 127 before the
+	// program is ever reached — reporting the builtin's name, not the program's:
+	//
+	//   003-postgres-crud setup exited 127: env: 'exec': No such file or directory
+	//
+	// Found on the first split-topology campaign, on the first cell that needed a
+	// dependency. Invisible everywhere else: only the deps path sets Env at all, and
+	// exec.Local assigns cmd.Env directly rather than building a shell command, so
+	// every local smoke run over all seven scenarios passed.
+	got := newTestSSH(t).remoteCommand(Cmd{
+		Path: "/srv/perf/scenarios/003-postgres-crud/setup.sh",
+		Dir:  "/srv/perf/scenarios/003-postgres-crud",
+		Env:  map[string]string{"PGPORT": "5432"},
+	})
+	if strings.Contains(got, "env") && !strings.Contains(got, "exec env") {
+		t.Errorf("env is invoked without exec in front of it: %s", got)
+	}
+	if i, j := strings.Index(got, "exec "), strings.Index(got, "env "); i < 0 || j < 0 || i > j {
+		t.Errorf("exec must precede env: %s", got)
+	}
+	// And the program still ends up as the last word, so env has something to run.
+	if !strings.HasSuffix(got, `'/srv/perf/scenarios/003-postgres-crud/setup.sh'`) {
+		t.Errorf("the program is not the command env execs: %s", got)
+	}
+}
+
 func TestARemoteCommandCarriesTheEnvironmentInAStableOrder(t *testing.T) {
 	// The rendered command reaches the archived argv. One that reorders between two
 	// identical cells produces a diff nobody can read, and map iteration order in Go is
