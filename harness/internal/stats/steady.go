@@ -155,11 +155,29 @@ func DetectSteady(rps series.Series, cfg SteadyConfig) (Window, bool) {
 		if !cfg.Corroborate.Empty() {
 			co := cfg.Corroborate.Window(start, last)
 			coSlope, ok := slopePctPerMin(co)
-			if !ok || math.Abs(coSlope) > cfg.CorroborateMaxSlopePctPerMin {
+			switch {
+			case !ok:
+				// The corroborating series cannot answer: too few points to fit a
+				// trend, or a mean of about zero, which is what a lightly loaded
+				// process differentiated from a coarse clock actually looks like —
+				// mostly quantisation steps around nothing.
+				//
+				// That is "cannot say", and it is not "not flat". Rejecting the
+				// window here would be rejecting it for want of evidence rather
+				// than on evidence, and the result would be a detector that finds
+				// no window at all on any subject cheap enough not to register —
+				// reported to the operator as an unsteady runtime.
+				//
+				// So the window is accepted with Corroborated left false, which is
+				// a recorded state the cell carries and the report prints. The
+				// weaker claim is made explicitly instead of a stronger one being
+				// refused silently.
+			case math.Abs(coSlope) > cfg.CorroborateMaxSlopePctPerMin:
 				// Throughput has settled but the subject has not. Keep looking.
 				continue
+			default:
+				w.Corroborated = true
 			}
-			w.Corroborated = true
 		}
 		return w, true
 	}
