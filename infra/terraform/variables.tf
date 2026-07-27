@@ -6,7 +6,7 @@ variable "project" {
 variable "region" {
   description = "Region for the network and the subnet."
   type        = string
-  default     = "us-central1"
+  default     = "us-west1"
 }
 
 variable "zone" {
@@ -17,7 +17,7 @@ variable "zone" {
     subtract.
   EOT
   type        = string
-  default     = "us-central1-a"
+  default     = "us-west1-a"
 }
 
 variable "prefix" {
@@ -60,9 +60,30 @@ variable "deps_machine_type" {
     indicative — misleading": the old lab reached both through host.docker.internal, so
     the dependency shared the subject's cores and the measurement folded the database's
     CPU into the runtime's.
+
+    Deliberately NOT a C4, and that is the one thing to preserve if you change it.
+
+    GCP bills a CPUS_PER_VM_FAMILY quota per family per region, and a new project gets
+    24 for C4. The runner and the subject are what the campaign is actually about — one
+    must not bottleneck, the other is the thing being measured — and at c4-standard-16
+    plus c4-standard-8 they consume exactly the whole allowance. A c4-standard-4 for the
+    dependencies pushes the request to 28 and `terraform apply` dies partway through,
+    having already built the two machines that fit:
+
+      Error: Quota 'CPUS_PER_VM_FAMILY' exceeded. Limit: 24.0 ... vm_family:C4
+
+    Putting the dependency host in a different family takes it out of that budget
+    entirely. It costs nothing methodologically: this machine is held constant across
+    every arm, so its performance is not a variable the comparison can be confounded by
+    — only its *colocation with the subject* ever was, and that is what moving it off
+    the subject already fixed.
+
+    Note that C4 is then consumed exactly to the limit, so two campaigns cannot run
+    concurrently in one region on the default quota. Raise CPUS_PER_VM_FAMILY, or give
+    the second campaign a different region, rather than shrinking the runner.
   EOT
   type        = string
-  default     = "c4-standard-4"
+  default     = "n2-standard-4"
 }
 
 variable "enable_deps" {
