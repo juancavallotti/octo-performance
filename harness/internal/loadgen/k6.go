@@ -59,8 +59,13 @@ type Request struct {
 	Phase Phase
 	URL   string
 
-	Method      string
-	Body        string
+	Method string
+	// Body is a short literal, passed through the environment.
+	Body string
+	// BodyBytes is a built payload. It is written into OutDir and handed to k6 as a
+	// file, so a megabyte does not travel through an environment variable and the
+	// exact bytes offered survive beside the result.
+	BodyBytes   []byte
 	ContentType string
 
 	Model    spec.Model
@@ -177,6 +182,14 @@ func (k *K6) Run(ctx context.Context, req Request) (Run, error) {
 	}
 	summaryPath := filepath.Join(req.OutDir, "summary.json")
 
+	bodyPath := ""
+	if len(req.BodyBytes) > 0 {
+		bodyPath = filepath.Join(req.OutDir, "body.dat")
+		if err := os.WriteFile(bodyPath, req.BodyBytes, 0o644); err != nil {
+			return Run{}, fmt.Errorf("loadgen: staging the request body: %w", err)
+		}
+	}
+
 	fifoPath := filepath.Join(req.OutDir, "series.fifo")
 	os.Remove(fifoPath)
 	if err := syscall.Mkfifo(fifoPath, 0o600); err != nil {
@@ -184,7 +197,7 @@ func (k *K6) Run(ctx context.Context, req Request) (Run, error) {
 	}
 	defer os.Remove(fifoPath)
 
-	env, err := environment(req, summaryPath)
+	env, err := environment(req, summaryPath, bodyPath)
 	if err != nil {
 		return Run{}, err
 	}
@@ -274,7 +287,7 @@ func model(req Request) spec.Model {
 }
 
 // environment builds the variables the script reads.
-func environment(req Request, summaryPath string) (map[string]string, error) {
+func environment(req Request, summaryPath, bodyPath string) (map[string]string, error) {
 	env := map[string]string{
 		"PERF_URL":      req.URL,
 		"PERF_MODEL":    string(model(req)),
@@ -286,7 +299,9 @@ func environment(req Request, summaryPath string) (map[string]string, error) {
 	if req.Method != "" {
 		env["PERF_METHOD"] = req.Method
 	}
-	if req.Body != "" {
+	if bodyPath != "" {
+		env["PERF_BODY_FILE"] = bodyPath
+	} else if req.Body != "" {
 		env["PERF_BODY"] = req.Body
 	}
 	if req.ContentType != "" {

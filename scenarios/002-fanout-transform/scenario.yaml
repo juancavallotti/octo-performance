@@ -1,0 +1,58 @@
+# Scenario 002 — fan-out and transform.
+#
+# One request runs a multi-transform, a three-branch fork, a mapped foreach over the
+# order lines, and two flow-refs. Unlike 001, `pool` is genuinely exercised: the fork
+# hands its three branches to the shared worker pool, so branch count and pool size
+# interact directly.
+
+route: /order/o-1001
+
+# The measured route is a POST that would reject a bare GET, so readiness is probed
+# against the scenario's trivial health flow instead. A readiness probe that fails for
+# the wrong reason costs a whole cell.
+readyRoute: /health
+
+request:
+  method: POST
+  contentType: application/json
+  payload:
+    kind: order-lines
+    # Order lines per request. Each line is a foreach iteration, so this is the knob
+    # that decides how CPU-heavy a message is.
+    lines: 8
+
+tunables:
+  - workers
+  - buffer
+  - pool
+
+load:
+  test: steady
+  model: open
+
+  calibrate: true
+  calibrateFraction: 0.5
+
+  duration: 60s
+  warmup: 10s
+
+  expectedLatency: 25ms
+  vuCap: 16000
+
+capacity:
+  startRate: 500
+  peakRate: 12000
+  steps: 10
+  dwell: 15s
+
+thresholds:
+  p95: 60ms
+  p99: 150ms
+
+calibration: |
+  The old lab ran this at 6,000 req/s, from a ramp on m1pro-16gb against octo 0.4.3
+  where CPU scaled linearly to 630% of one core at 14,000 req/s with no fold-over —
+  this scenario is CPU-bound rather than queue-bound, so the knee sat beyond what the
+  host could offer while also running k6. That reasoning is why the number was low; it
+  is not why the number was 6,000, and the generator sharing the host is exactly the
+  condition that made it unreliable. Each campaign now measures its own knee.

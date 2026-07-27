@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,7 +33,10 @@ func cmdRun(args []string) error {
 	subjectHost := fs.String("subject", "127.0.0.1", "address the runner reaches the subject on")
 	workloadPort := fs.Int("port", 8080, "the workload port")
 	adminPort := fs.Int("admin-port", 39999, "the runtime's admin port")
+	depsHost := fs.String("deps", "127.0.0.1", "address the subject reaches scenario dependencies on")
 	k6Bin := fs.String("k6", "k6", "the load generator binary")
+	skipCalibration := fs.Bool("no-calibrate", false,
+		"skip the capacity ramp and use each scenario's declared rate")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -70,8 +75,11 @@ func cmdRun(args []string) error {
 
 	local := exec.NewLocal()
 	r := campaign.New(campaign.Config{
-		Hosts:         campaign.Hosts{Runner: local, Subject: local},
-		Endpoints:     campaign.Endpoints{Host: *subjectHost, WorkloadPort: *workloadPort, AdminPort: *adminPort},
+		Hosts: campaign.Hosts{Runner: local, Subject: local},
+		Endpoints: campaign.Endpoints{
+			Host: *subjectHost, WorkloadPort: *workloadPort, AdminPort: *adminPort,
+			DepsHost: *depsHost,
+		},
 		Dir:           dir,
 		ResolveBinary: campaign.DefaultResolver(*versionsDir),
 		LoadGen:       loadgen.NewK6(local, *k6Bin),
@@ -90,6 +98,28 @@ func cmdRun(args []string) error {
 	defer stop()
 
 	fmt.Printf("%s — %d cells into %s\n\n", c.Name, len(p.Cells), dir)
+
+	// Dependencies and calibration are per scenario, not per cell, and both have to
+	// happen before the first cell of that scenario runs.
+	//
+	// Deps once because a cold Postgres would put schema creation and connection
+	// establishment inside the measured window. Calibration once because every arm has
+	// to be offered the same rate — an arm measured at its own comfortable rate and
+	// compared against another at a different one is not a comparison.
+	deps, err := standUpDeps(ctx, r, p)
+	defer func() {
+		for _, d := range deps {
+			d.Stop(context.WithoutCancel(ctx))
+		}
+	}()
+	if err != nil {
+		return err
+	}
+
+	calibrations, err := calibrate(ctx, r, p, dir, *skipCalibration)
+	if err != nil {
+		return err
+	}
 
 	var peers []gate.Peer
 	var cells []*result.Cell
@@ -121,7 +151,7 @@ func cmdRun(args []string) error {
 	// The roll-up and the report are written from whatever completed. A campaign cut
 	// short still answers what it managed to measure, and the ledger says how much
 	// that was — which is more than the old lab could do for a run that finished.
-	rolled := result.Rollup(rollupInput(c, p, cells), cells)
+	rolled := result.Rollup(rollupInput(c, p, cells, calibrations), cells)
 	if err := result.WriteJSON(filepath.Join(dir, "campaign.json"), rolled); err != nil {
 		return err
 	}
@@ -146,9 +176,93 @@ func cmdRun(args []string) error {
 	return nil
 }
 
+// standUpDeps starts each scenario's dependencies, once, before any cell runs.
+//
+// Everything is stood up before the first cell rather than lazily at each scenario's
+// first cell, so a missing docker daemon costs a few seconds at the start of a campaign
+// instead of surfacing four hours in — which is where the old lab discovered it.
+func standUpDeps(ctx context.Context, r *campaign.Runner, p *plan.Plan) ([]*campaign.Deps, error) {
+	var out []*campaign.Deps
+	seen := map[string]bool{}
+	for _, cell := range p.Cells {
+		id := cell.ID.Scenario
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+
+		d, err := r.StartDeps(ctx, cell.Scenario)
+		if err != nil {
+			// Every cell of the scenario would fail identically and for a reason that
+			// has nothing to do with the runtime under test, so this is not something
+			// to carry on through.
+			return out, err
+		}
+		if d != nil {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// calibrate measures each scenario's rate and writes it into every cell of that
+// scenario.
+//
+// The plan's cells are mutated in place, and their hash is deliberately not recomputed:
+// the hash describes what the campaign set out to do — "measure this scenario's rate" —
+// and a resumed run has to match that intent rather than the number a ramp happened to
+// produce on one afternoon.
+func calibrate(ctx context.Context, r *campaign.Runner, p *plan.Plan, dir string, skip bool) ([]*campaign.Calibration, error) {
+	var out []*campaign.Calibration
+	done := map[string]bool{}
+
+	for i := range p.Cells {
+		cell := &p.Cells[i]
+		id := cell.ID.Scenario
+		if !cell.Load.Calibrate {
+			continue
+		}
+		if skip {
+			// The scenario declared no rate of its own — that is what calibrate: true
+			// means — so there is nothing to fall back to and the campaign must say so
+			// rather than invent one.
+			return nil, fmt.Errorf(
+				"scenario %s asks for a measured rate and --no-calibrate was given, "+
+					"so it has no rate at all; set load.rate in a campaign override to run without a ramp", id)
+		}
+		if !done[id] {
+			done[id] = true
+			c, err := r.Calibrate(ctx, *cell, filepath.Join(dir, "calibration", id))
+			if err != nil {
+				return out, fmt.Errorf("calibrating %s: %w", id, err)
+			}
+			out = append(out, c)
+			if err := result.WriteJSON(filepath.Join(dir, "calibration.json"), out); err != nil {
+				return out, err
+			}
+		}
+		var chosen *campaign.Calibration
+		for _, c := range out {
+			if c.Scenario == id {
+				chosen = c
+			}
+		}
+		if chosen == nil || chosen.Rate <= 0 {
+			return out, fmt.Errorf(
+				"scenario %s: the capacity ramp established no rate, so there is nothing to run every arm at", id)
+		}
+		cell.Load.Rate = chosen.Rate
+		cell.Load.Calibrate = false
+		if ctx.Err() != nil {
+			return out, ctx.Err()
+		}
+	}
+	return out, nil
+}
+
 // rollupInput carries what the cells cannot: the campaign's own declarations, and the
 // topology fact that qualifies every number in the report.
-func rollupInput(c *spec.Campaign, p *plan.Plan, cells []*result.Cell) result.RollupInput {
+func rollupInput(c *spec.Campaign, p *plan.Plan, cells []*result.Cell, calib []*campaign.Calibration) result.RollupInput {
 	in := result.RollupInput{
 		Name:        c.Name,
 		Question:    c.Question,
@@ -174,6 +288,32 @@ func rollupInput(c *spec.Campaign, p *plan.Plan, cells []*result.Cell) result.Ro
 	for _, cell := range p.Cells {
 		in.Routes[cell.ID.Scenario] = cell.Scenario.Route
 	}
+
+	// How every scenario's rate was arrived at, declared or measured. A rate nobody can
+	// account for is the single most consequential unexplained number in a benchmark:
+	// it decides whether the whole scenario was saturated.
+	measured := map[string]bool{}
+	for _, cl := range calib {
+		measured[cl.Scenario] = true
+		in.Rates = append(in.Rates, result.RateChoice{
+			Scenario: cl.Scenario, Rate: cl.Rate, Source: "measured",
+			Arm: cl.Arm, Fraction: cl.Fraction,
+			KneeFound: cl.Knee.Found, KneeRate: cl.Knee.Rate,
+			Steps: cl.Knee.Steps, Note: cl.Note,
+		})
+	}
+	for _, cell := range p.Cells {
+		id := cell.ID.Scenario
+		if measured[id] {
+			continue
+		}
+		measured[id] = true
+		in.Rates = append(in.Rates, result.RateChoice{
+			Scenario: id, Rate: cell.Load.Rate, Source: "scenario",
+			Note: strings.TrimSpace(cell.Scenario.Calibration),
+		})
+	}
+	sort.Slice(in.Rates, func(i, j int) bool { return in.Rates[i].Scenario < in.Rates[j].Scenario })
 	// Colocation is the fact that qualifies everything else, so it is derived from
 	// the topology rather than left for a reader to infer from the machine names.
 	in.Colocated = c.Topology.Runner.Local() && c.Topology.Subject.Local()

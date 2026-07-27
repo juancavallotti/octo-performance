@@ -15,14 +15,25 @@
 // PERF_STAGES     JSON stages for a capacity ramp, instead of a steady rate
 // PERF_START_RATE starting rate for a ramp
 // PERF_SUMMARY    where to write the end-of-run summary
+// PERF_BODY_FILE  path to the request body, built and hashed by the harness
+// PERF_BODY       a short literal body, when a file would be ceremony
 
 import http from 'k6/http';
 
 const url = __ENV.PERF_URL;
 const model = __ENV.PERF_MODEL || 'open';
 const method = (__ENV.PERF_METHOD || 'GET').toUpperCase();
-const bodyText = __ENV.PERF_BODY || null;
 const contentType = __ENV.PERF_CONTENT_TYPE || '';
+
+// Read once, at init, and share it across every virtual user. Building or re-reading
+// the body per iteration is what would make the generator the thing under test — the
+// megabyte rung of the payload ladder is a megabyte of serialisation per request.
+//
+// The file, not an environment variable: a megabyte does not belong in an environ, and
+// the file is archived beside the cell so the exact bytes offered survive the run.
+const bodyText = __ENV.PERF_BODY_FILE
+  ? open(__ENV.PERF_BODY_FILE)
+  : (__ENV.PERF_BODY || null);
 
 const rate = Number(__ENV.PERF_RATE || 0);
 const vus = Number(__ENV.PERF_VUS || 0);

@@ -47,12 +47,39 @@ type Campaign struct {
 	Scenarios []ScenarioRollup  `json:"scenarios"`
 	Ledger    []LedgerRow       `json:"ledger"`
 	Calib     []GateCalibration `json:"gateCalibration,omitempty"`
+	// Rates records how each scenario's offered rate was chosen. In the old lab this
+	// was a shell variable with a comment above it describing a measurement taken on a
+	// different day, and the report had no way to show either.
+	Rates []RateChoice `json:"rates,omitempty"`
 
 	// Verdict is the sentence that leads the report.
 	Verdict string `json:"verdict"`
 	// Regressions and Improvements are the findings that survived the noise band.
 	Regressions  []Finding `json:"regressions,omitempty"`
 	Improvements []Finding `json:"improvements,omitempty"`
+}
+
+// RateChoice is how one scenario's offered rate was arrived at.
+//
+// Every arm of a scenario runs at the same rate, so this is a campaign-level fact rather
+// than a per-cell one — and it is the fact that decides whether any of the scenario's
+// numbers mean anything. STEADY_RATE=16000 was calibrated once, on a laptop, the day
+// before it stopped being true, and nothing in a published result said so.
+type RateChoice struct {
+	Scenario string `json:"scenario"`
+	Rate     int    `json:"rate"`
+	// Source is "scenario" for a declared rate and "measured" for one a capacity ramp
+	// chose. A reader must never have to infer which.
+	Source string `json:"source"`
+	// Arm is the reference the ramp ran against, when there was one.
+	Arm      string  `json:"arm,omitempty"`
+	Fraction float64 `json:"fraction,omitempty"`
+	// KneeFound distinguishes a measured ceiling from a ramp that held everything and
+	// therefore established only a lower bound.
+	KneeFound bool               `json:"kneeFound,omitempty"`
+	KneeRate  float64            `json:"kneeRate,omitempty"`
+	Steps     []stats.StepResult `json:"steps,omitempty"`
+	Note      string             `json:"note,omitempty"`
 }
 
 // Arm is one thing compared, as executed.
@@ -226,6 +253,8 @@ type RollupInput struct {
 	Notes       string
 	Planned     int
 	Routes      map[string]string
+	// Rates is how each scenario's offered rate was chosen, declared or measured.
+	Rates []RateChoice
 	// Seed makes the bootstrap deterministic, so re-rendering a report from the same
 	// cells produces the same intervals. A confidence interval that moves when you
 	// look at it twice is not one.
@@ -253,6 +282,7 @@ func Rollup(in RollupInput, cells []*Cell) *Campaign {
 		Order:       in.Order,
 		OrderReason: in.OrderReason,
 		ObserveOnly: in.ObserveOnly,
+		Rates:       in.Rates,
 		Colocated:   in.Colocated,
 		Notes:       in.Notes,
 	}

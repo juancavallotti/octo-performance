@@ -173,6 +173,23 @@ func (s Series) Mean() (float64, bool) {
 	return sum / float64(len(s.Points)), true
 }
 
+// Sum of the values.
+//
+// Meaningful only for a series whose points are counts of things that happened in their
+// bucket — dropped iterations, failed requests. Summing a gauge produces a number with
+// no unit, which is why this returns ok rather than a bare zero: an absent series and a
+// series of zeroes are different claims, and only one of them is evidence.
+func (s Series) Sum() (float64, bool) {
+	if len(s.Points) == 0 {
+		return 0, false
+	}
+	var sum float64
+	for _, p := range s.Points {
+		sum += p.V
+	}
+	return sum, true
+}
+
 // Max of the values.
 func (s Series) Max() (float64, bool) {
 	if len(s.Points) == 0 {

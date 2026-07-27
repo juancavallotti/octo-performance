@@ -266,16 +266,16 @@ func TestPoolGrowthIsTheDiscriminator(t *testing.T) {
 func TestEnvironmentRequiresWhatEachModelNeeds(t *testing.T) {
 	base := Request{URL: "http://s/page", Duration: 30 * time.Second, Pool: SizePool(100, time.Millisecond, 0)}
 
-	if _, err := environment(Request{URL: base.URL, Duration: base.Duration, Model: spec.Open}, "/s.json"); err == nil {
+	if _, err := environment(Request{URL: base.URL, Duration: base.Duration, Model: spec.Open}, "/s.json", ""); err == nil {
 		t.Error("an open-model pass with no rate was accepted")
 	}
-	if _, err := environment(Request{URL: base.URL, Duration: base.Duration, Model: spec.Closed}, "/s.json"); err == nil {
+	if _, err := environment(Request{URL: base.URL, Duration: base.Duration, Model: spec.Closed}, "/s.json", ""); err == nil {
 		t.Error("a closed-model pass with no vus was accepted")
 	}
 
 	open := base
 	open.Model, open.Rate = spec.Open, 800
-	env, err := environment(open, "/s.json")
+	env, err := environment(open, "/s.json", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestEnvironmentRequiresWhatEachModelNeeds(t *testing.T) {
 
 	closed := base
 	closed.Model, closed.VUs = spec.Closed, 50
-	env, err = environment(closed, "/s.json")
+	env, err = environment(closed, "/s.json", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestStagesDisplaceTheSteadyRate(t *testing.T) {
 		Stages:    []Stage{{Target: 1000, Duration: 30 * time.Second}, {Target: 4000, Duration: 30 * time.Second}},
 		Pool:      SizePool(4000, 5*time.Millisecond, 0),
 	}
-	env, err := environment(req, "/s.json")
+	env, err := environment(req, "/s.json", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,5 +356,69 @@ func TestScriptIsArchivedWithItsDigest(t *testing.T) {
 	}
 	if strings.Contains(Script, "abortOnFail") {
 		t.Error("a threshold that aborts cuts the run short exactly when it is worth measuring")
+	}
+}
+
+func TestABuiltBodyTravelsAsAFileNotAnEnvironmentVariable(t *testing.T) {
+	// The megabyte rung of scenario 006's payload ladder is a megabyte. An environ has
+	// a size limit, the limit differs by platform, and the failure when it is exceeded
+	// is an exec error with nothing in it about payloads.
+	//
+	// Writing it out also means the exact bytes offered survive beside the result,
+	// which is what the old lab could not do: its bodies were assembled inside the k6
+	// script and existed only in the generator's memory.
+	req := Request{
+		URL: "http://s/transform", Duration: time.Second, Model: spec.Open, Rate: 10,
+		BodyBytes: []byte(`{"records":[]}`),
+	}
+	env, err := environment(req, "/s.json", "/cell/body.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["PERF_BODY_FILE"] != "/cell/body.dat" {
+		t.Errorf("PERF_BODY_FILE = %q", env["PERF_BODY_FILE"])
+	}
+	if _, ok := env["PERF_BODY"]; ok {
+		t.Error("the body was also passed inline; only one source may win")
+	}
+}
+
+func TestAShortLiteralBodyStillTravelsInline(t *testing.T) {
+	// Scenarios 003 and 004 send a fixed sixty-byte document. Staging a file for that
+	// is ceremony, and the literal is readable in the archived environment.
+	req := Request{
+		URL: "http://s/order", Duration: time.Second, Model: spec.Open, Rate: 10,
+		Body: `{"customer":"acme-industrial"}`, ContentType: "application/json",
+		Method: "POST",
+	}
+	env, err := environment(req, "/s.json", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["PERF_BODY"] != req.Body {
+		t.Errorf("PERF_BODY = %q", env["PERF_BODY"])
+	}
+	if env["PERF_METHOD"] != "POST" || env["PERF_CONTENT_TYPE"] != "application/json" {
+		t.Errorf("the method and content type did not reach the script: %v", env)
+	}
+}
+
+func TestTheScriptReadsTheBodyOnceAtInit(t *testing.T) {
+	// Per-iteration construction is what would make the generator the thing under test.
+	// Asserted against the script text because the failure is silent: a body built in
+	// the default function still produces correct requests, at a fraction of the rate,
+	// and the shortfall reads as server saturation.
+	if !strings.Contains(Script, "const bodyText") {
+		t.Fatal("the body is not bound at module scope")
+	}
+	body, _, ok := strings.Cut(Script, "export default function")
+	if !ok {
+		t.Fatal("the script has no default function")
+	}
+	if !strings.Contains(body, "open(__ENV.PERF_BODY_FILE)") {
+		t.Error("the body file is not read in the init context")
+	}
+	if _, after, _ := strings.Cut(Script, "export default function"); strings.Contains(after, "open(") {
+		t.Error("the iteration function reads the body file; it must be read once at init")
 	}
 }

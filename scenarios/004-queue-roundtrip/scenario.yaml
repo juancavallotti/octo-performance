@@ -1,0 +1,62 @@
+# Scenario 004 — internal queue round trip.
+#
+# Two flows, and each has its own concurrency knob:
+#
+#   submit  (HTTP)   workers/buffer/pool   — blocks waiting for the reply
+#   worker  (queue)  listeners             — concurrent handlers draining the queue
+#
+# The producer blocks on awaitReply, so the binding limit is the worker count rather
+# than CPU. Each knob is declared in exactly one place in the integration, so they can
+# be tuned independently — which is the whole point of the scenario.
+
+route: /job
+readyRoute: /health
+
+request:
+  method: POST
+  contentType: application/json
+  # units and weight are decimals: the consumer multiplies them and CEL will not
+  # multiply an int by a double. weight * units * 1.37 = 304.14, which lands in the
+  # "medium" band — the value the smoke check asserts on.
+  body: '{"tenant":"acme-industrial","units":12.0,"weight":18.5}'
+
+tunables:
+  - workers
+  - buffer
+  - pool
+  # The consumer side. It sits on the queue source's settings, not on the flow, and a
+  # bare name would look for flows[*].listeners and find nothing.
+  - name: listeners
+    path: flows[*].source.settings.listeners
+
+load:
+  test: steady
+  model: open
+
+  calibrate: true
+  calibrateFraction: 0.5
+
+  duration: 60s
+  warmup: 10s
+
+  # A queue round trip has a longer tail than a bare HTTP call. Size from the tail or
+  # the generator sheds iterations and it reads as server saturation.
+  expectedLatency: 40ms
+  vuCap: 16000
+
+capacity:
+  startRate: 500
+  peakRate: 28000
+  steps: 10
+  dwell: 15s
+
+thresholds:
+  p95: 80ms
+  p99: 250ms
+
+calibration: |
+  The old lab ran this at 10,000 req/s. Its ramp on m1pro-16gb against octo 0.4.3 topped
+  out near 14,400 req/s while the runtime used only 258% of one core — not CPU-bound,
+  worker-bound, exactly as 8 workers over a ~0.5 ms round trip predicts. That is a real
+  finding about the scenario's shape and it should survive; the specific rate should
+  not, because it was measured with the generator on the same cores.

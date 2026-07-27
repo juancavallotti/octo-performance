@@ -82,7 +82,10 @@ func SelfContained(html []byte) []string {
 
 func funcs() template.FuncMap {
 	return template.FuncMap{
-		"num":      num,
+		// num is registered through a widening wrapper because the model carries some
+		// of these as counts and some as measurements, and a template that has to
+		// remember which is a template that renders "%!num(int=800)" in production.
+		"num":      func(v any) string { return num(asFloat(v)) },
 		"pct":      func(f float64) string { return fmt.Sprintf("%+.1f%%", f) },
 		"pctAbs":   func(f float64) string { return fmt.Sprintf("%.1f%%", f) },
 		"dur":      durText,
@@ -99,7 +102,27 @@ func funcs() template.FuncMap {
 		// Layout arithmetic only. Nothing here changes what a number is.
 		"add": func(a, b float64) float64 { return a + b },
 		"sub": func(a, b float64) float64 { return a - b },
+		"mul": func(a, b float64) float64 { return a * b },
 	}
+}
+
+// asFloat widens whatever the model carries. An unknown type yields zero rather than a
+// panic mid-render: a report that fails to draw teaches a reader nothing, and the number
+// it could not widen is visible as a zero next to numbers that are not.
+func asFloat(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case int32:
+		return float64(n)
+	}
+	return 0
 }
 
 // num formats a measurement at a resolution the measurement can support.

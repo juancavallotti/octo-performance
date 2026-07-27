@@ -27,6 +27,7 @@ import (
 	"github.com/juancavallotti/octo-performance/harness/internal/exec"
 	"github.com/juancavallotti/octo-performance/harness/internal/gate"
 	"github.com/juancavallotti/octo-performance/harness/internal/loadgen"
+	"github.com/juancavallotti/octo-performance/harness/internal/payload"
 	"github.com/juancavallotti/octo-performance/harness/internal/plan"
 	"github.com/juancavallotti/octo-performance/harness/internal/promx"
 	"github.com/juancavallotti/octo-performance/harness/internal/render"
@@ -46,6 +47,11 @@ type Hosts struct {
 	// that is the colocated laptop topology, which is supported and which the
 	// saturation gate correctly marks suspect.
 	Subject exec.Runner
+	// Deps carries scenario dependencies — the database, the backend. Nil means the
+	// runner, which is right on one machine and wrong on three: a dependency that
+	// shares the subject's cores is contention the result cannot distinguish from
+	// the runtime's own cost.
+	Deps exec.Runner
 }
 
 // Endpoints is where the subject answers, as seen from the runner.
@@ -56,6 +62,10 @@ type Endpoints struct {
 	WorkloadPort int
 	// AdminPort is the runtime's admin port.
 	AdminPort int
+	// DepsHost is the address a scenario's dependency answers on, as seen from the
+	// SUBJECT. It replaces ${DEPS_HOST} in the scenario's declared environment, so
+	// the same string reaches the setup script and the runtime.
+	DepsHost string
 }
 
 func (e Endpoints) base() string {
@@ -72,6 +82,8 @@ func hostOr(h string) string {
 	}
 	return h
 }
+
+func trimSlash(s string) string { return strings.TrimRight(s, "/") }
 
 // Config is everything a campaign runner needs that is not the plan.
 type Config struct {
@@ -192,12 +204,17 @@ func DefaultResolver(root string) func(spec.BinaryRef) (string, error) {
 type Runner struct {
 	cfg    Config
 	prober *subject.Prober
+	// deps holds the dependencies currently standing, by scenario. A cell reads its
+	// scenario's entry to learn how to reach the database or the backend, so the
+	// runtime and the setup script are handed the same address rather than two
+	// strings that happen to agree.
+	deps map[string]*Deps
 }
 
 // New returns a campaign runner.
 func New(cfg Config) *Runner {
 	cfg.withDefaults()
-	return &Runner{cfg: cfg, prober: subject.NewProber()}
+	return &Runner{cfg: cfg, prober: subject.NewProber(), deps: map[string]*Deps{}}
 }
 
 // RunCell is the one procedure.
@@ -230,14 +247,32 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 	subjectDir := filepath.Join(cfg.SubjectDir, "cells", out.Slug())
 	cfg.Log("cell %s (ordinal %d)", cell.ID, cell.Ordinal)
 
-	// 1. Render the arm's config and put it where the subject will read it.
+	// 1. Build what will be offered, before anything is started. A generator that
+	// cannot produce what it was asked for is a specification error, and it should
+	// surface as one rather than as a subject that came up and received nothing.
+	body, err := payload.Build(cell.Scenario.Request.Payload)
+	if err != nil {
+		return nil, err
+	}
+	out.Request = result.RequestSpec{
+		Method:      cell.Scenario.Request.Verb(),
+		Route:       cell.Scenario.Route,
+		ContentType: cell.Scenario.Request.ContentType,
+	}
+	if body.Size > 0 {
+		out.Request.Payload = &body
+		cfg.Log("  payload: %s, %d bytes over %d records (%s)",
+			body.Kind, body.Size, body.Records, body.SHA256[:12])
+	}
+
+	// 2. Render the arm's config and put it where the subject will read it.
 	rendered, err := r.renderConfig(ctx, cell, dir, subjectDir)
 	if err != nil {
 		return nil, err
 	}
 	out.Config = rendered.result
 
-	// 2. Ask the artifact what it accepts. Never infer it from a version string.
+	// 3. Ask the artifact what it accepts. Never infer it from a version string.
 	binary, err := cfg.ResolveBinary(cell.Arm.Binary)
 	if err != nil {
 		return nil, err
@@ -252,7 +287,7 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 	}
 	cfg.Log("  artifact: %s", caps.Summary())
 
-	// 3. Refuse to start against a port something else already holds. A stale
+	// 4. Refuse to start against a port something else already holds. A stale
 	// process answers 404 quickly and reads as excellent throughput.
 	if err := subject.AssertPortsFree(
 		fmt.Sprintf("%s:%d", hostOr(cfg.Endpoints.Host), cfg.Endpoints.WorkloadPort),
@@ -272,7 +307,9 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 		WorkDir:    subjectDir,
 		AdminAddr:  fmt.Sprintf(":%d", cfg.Endpoints.AdminPort),
 		Metrics:    true,
-		Env:        cell.Arm.Env,
+		// The scenario's dependency addresses, with the arm's own environment layered
+		// over them: a campaign that names a value has said something more specific.
+		Env:        mergeEnv(r.deps[cell.ID.Scenario].SubjectEnv(), cell.Arm.Env),
 		ExtraFlags: cell.Arm.Flags,
 		Log:        logFile,
 		Endpoints:  subject.Endpoints{Base: cfg.Endpoints.base()},
@@ -281,7 +318,7 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 		req.Endpoints.Admin = cfg.Endpoints.admin()
 	}
 
-	// 4. Start, and record the exact argv that ran.
+	// 5. Start, and record the exact argv that ran.
 	h, err := subject.Start(ctx, cfg.Hosts.Subject, req)
 	if err != nil {
 		return nil, err
@@ -298,7 +335,7 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 		}
 	}()
 
-	// 5. Wait for readiness, confirming a detected admin port actually answers.
+	// 6. Wait for readiness, confirming a detected admin port actually answers.
 	ready, err := h.AwaitReady(ctx, cell.Scenario.ReadyRoute, cfg.ReadyTimeout)
 	out.Ready = ready
 	if err != nil {
@@ -306,22 +343,22 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 	}
 	cfg.Log("  ready by %s in %s", ready.Method, ready.ColdStart.Round(time.Millisecond))
 
-	// 6. Ask the running process what it is, as distinct from what was started.
+	// 7. Ask the running process what it is, as distinct from what was started.
 	identity, err := h.Identify(ctx)
 	if err != nil {
 		cfg.Log("  identity: %v", err)
 	}
 	out.Identity = identity
 
-	// 7. Start every collector BEFORE the window opens. The window is chosen
+	// 8. Start every collector BEFORE the window opens. The window is chosen
 	// afterwards, from the data; a collector that starts when the measurement starts
 	// cannot answer whether the measurement was steady.
 	subjectSampler, runnerSampler := r.startSamplers(ctx, h.PID())
 	scraper := r.startScraper(ctx, h, caps)
 
-	// 8. Warm-up. Its artifacts are kept and labelled, never silently discarded.
+	// 9. Warm-up. Its artifacts are kept and labelled, never silently discarded.
 	if cell.Load.Warmup > 0 {
-		warm, err := cfg.LoadGen.Run(ctx, r.loadRequest(cell, loadgen.Warmup, cell.Load.Warmup, dir))
+		warm, err := cfg.LoadGen.Run(ctx, r.loadRequest(cell, loadgen.Warmup, cell.Load.Warmup, dir, body))
 		if err != nil {
 			return nil, fmt.Errorf("campaign: warm-up: %w", err)
 		}
@@ -329,14 +366,14 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 		cfg.Log("  warm-up: %.0f rps achieved", warm.Summary.AchievedRPS())
 	}
 
-	// 9. The measured pass.
-	measured, err := cfg.LoadGen.Run(ctx, r.loadRequest(cell, loadgen.Measured, cell.Load.Duration, dir))
+	// 10. The measured pass.
+	measured, err := cfg.LoadGen.Run(ctx, r.loadRequest(cell, loadgen.Measured, cell.Load.Duration, dir, body))
 	if err != nil {
 		return nil, fmt.Errorf("campaign: measured pass: %w", err)
 	}
 	out.Measured = measured
 
-	// 10. Stop the collectors, then the subject. Whole-lifetime cost comes from
+	// 11. Stop the collectors, then the subject. Whole-lifetime cost comes from
 	// being its parent, not from discovering its pid.
 	scrapes := collect.Scrapes{}
 	if scraper != nil {
@@ -356,19 +393,19 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 		cfg.Log("  stop: %v", err)
 	}
 
-	// 11. Choose the window from the data. Both the detected one and the naive
+	// 12. Choose the window from the data. Both the detected one and the naive
 	// fixed-offset one are kept, so detection can be audited across a campaign.
 	r.selectWindow(out, measured)
 
-	// 12. Window everything against the interval that was chosen.
+	// 13. Window everything against the interval that was chosen.
 	r.windowSubject(out)
 	r.windowServer(out, scrapes, rendered.flows)
 	r.fillHeadline(out, measured)
 
-	// 13. Gate it. Gates read; they never mutate a measurement and never abort.
+	// 14. Gate it. Gates read; they never mutate a measurement and never abort.
 	out.Verdict = gate.Evaluate(cfg.Gates, r.evidence(out, cell, peers), cfg.ObserveOnly)
 
-	// 14. Write it all down, atomically.
+	// 15. Write it all down, atomically.
 	out.EndedAt = time.Now()
 	out.Elapsed = out.EndedAt.Sub(started)
 	if err := r.writeArtifacts(out, dir, measured, scrapes); err != nil {
@@ -377,7 +414,7 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 	cfg.Log("  %s — %.0f rps, client p95 %.2fms, verdict %s",
 		out.Slug(), out.Headline.AchievedRPS, out.Headline.ClientP95Ms, out.Verdict.Level)
 
-	// 15. Cool down, so the next cell does not inherit this one's thermal state.
+	// 16. Cool down, so the next cell does not inherit this one's thermal state.
 	if cfg.Cooldown > 0 {
 		select {
 		case <-ctx.Done():
@@ -505,18 +542,23 @@ func (r *Runner) startScraper(ctx context.Context, h *subject.Handle, caps subje
 	return s
 }
 
-func (r *Runner) loadRequest(cell plan.Cell, phase loadgen.Phase, dur time.Duration, dir string) loadgen.Request {
+func (r *Runner) loadRequest(cell plan.Cell, phase loadgen.Phase, dur time.Duration, dir string, body payload.Body) loadgen.Request {
 	l := cell.Load
+	req := cell.Scenario.Request
 	pool := loadgen.SizePool(l.Rate, l.ExpectedLatency, l.VUCap)
 	return loadgen.Request{
-		Phase:    phase,
-		URL:      strings.TrimRight(r.cfg.Endpoints.base(), "/") + cell.Scenario.Route,
-		Model:    l.Model,
-		Rate:     l.Rate,
-		VUs:      l.VUs,
-		Duration: dur,
-		Pool:     pool,
-		OutDir:   filepath.Join(dir, "k6-"+string(phase)),
+		Phase:       phase,
+		URL:         r.url(cell.Scenario),
+		Method:      req.Verb(),
+		Body:        req.Body,
+		BodyBytes:   body.Bytes,
+		ContentType: req.ContentType,
+		Model:       l.Model,
+		Rate:        l.Rate,
+		VUs:         l.VUs,
+		Duration:    dur,
+		Pool:        pool,
+		OutDir:      filepath.Join(dir, "k6-"+string(phase)),
 	}
 }
 

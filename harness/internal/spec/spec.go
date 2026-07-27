@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/juancavallotti/octo-performance/harness/internal/payload"
 	"gopkg.in/yaml.v3"
 )
 
@@ -237,6 +238,51 @@ type Gates struct {
 	ObserveOnly bool `yaml:"observeOnly,omitempty"`
 }
 
+// Capacity describes the ramp that finds a scenario's knee.
+//
+// It exists because STEADY_RATE=16000 was calibrated once, on a laptop, on 2026-07-25,
+// and by the next day every cell at that rate was shedding 260,000 to 630,000 iterations.
+// A rate calibrated once is a constant in the code and a variable in reality.
+type Capacity struct {
+	StartRate int `yaml:"startRate,omitempty"`
+	PeakRate  int `yaml:"peakRate,omitempty"`
+	// Steps is how many rungs the ramp climbs. The resolution of the answer is
+	// (PeakRate-StartRate)/(Steps-1), so it is the knob that trades campaign time for
+	// precision in the chosen rate.
+	Steps int `yaml:"steps,omitempty"`
+	// Dwell is how long each rung is held and measured.
+	Dwell time.Duration `yaml:"dwell,omitempty"`
+	// Transition is the ramp between rungs, excluded from every measurement.
+	Transition time.Duration `yaml:"transition,omitempty"`
+}
+
+// Declared reports whether the ramp has somewhere to climb to.
+func (c Capacity) Declared() bool { return c.PeakRate > 0 }
+
+// WithDefaults fills in the parts a scenario did not state.
+func (c Capacity) WithDefaults() Capacity {
+	if c.StartRate <= 0 {
+		c.StartRate = c.PeakRate / 20
+	}
+	if c.Steps <= 0 {
+		c.Steps = 10
+	}
+	if c.Dwell <= 0 {
+		c.Dwell = 15 * time.Second
+	}
+	if c.Transition <= 0 {
+		c.Transition = time.Second
+	}
+	return c
+}
+
+// Duration is how long the ramp will take, which is what makes an eight-hour campaign
+// reviewable as a plan rather than discovered as a mistake.
+func (c Capacity) Duration() time.Duration {
+	c = c.WithDefaults()
+	return time.Duration(c.Steps) * (c.Dwell + c.Transition)
+}
+
 // Thresholds are the scenario's k6 pass/fail bounds.
 type Thresholds struct {
 	P95 time.Duration `yaml:"p95,omitempty"`
@@ -253,6 +299,12 @@ type Scenario struct {
 	Route      string `yaml:"route"`
 	ReadyRoute string `yaml:"readyRoute,omitempty"`
 
+	// Request is what the generator sends to Route. Zero means a bare GET.
+	Request Request `yaml:"request,omitempty"`
+
+	// Deps is the dependency this scenario needs standing before it runs.
+	Deps Deps `yaml:"deps,omitempty"`
+
 	// Integration is the runtime config, relative to the scenario directory. It
 	// defaults to octo/integration.yaml, which is where every scenario keeps it.
 	Integration string `yaml:"integration,omitempty"`
@@ -264,6 +316,7 @@ type Scenario struct {
 	Tunables []Selector `yaml:"tunables"`
 
 	Load       Load       `yaml:"load"`
+	Capacity   Capacity   `yaml:"capacity,omitempty"`
 	Thresholds Thresholds `yaml:"thresholds,omitempty"`
 
 	// RequiresCEL is an expression that must compile and return true against the
@@ -271,14 +324,71 @@ type Scenario struct {
 	// as loudly as one that is absent.
 	RequiresCEL string `yaml:"requiresCel,omitempty"`
 
-	Setup    string `yaml:"setup,omitempty"`
-	Teardown string `yaml:"teardown,omitempty"`
-
 	// Calibration records why the rate is what it is. In the old lab this reasoning
 	// was the most valuable line in scenario.env and existed only as a shell comment,
 	// so it never reached a report.
 	Calibration string `yaml:"calibration,omitempty"`
 }
+
+// Request is what the generator sends.
+//
+// The body is described here rather than built inside the load script. In the old lab
+// each scenario carried a payload.js that assembled its document from environment
+// variables at VU-init time, which meant the exact bytes offered existed only in the
+// generator's memory: they were in no result directory, had no digest, and could not be
+// compared between two campaigns that claimed to run the same workload. Scenarios 006
+// and 007 are explicitly designed to be compared record-for-record, and that comparison
+// rested on two JavaScript files agreeing with each other by inspection.
+type Request struct {
+	// Method defaults to GET.
+	Method      string `yaml:"method,omitempty"`
+	ContentType string `yaml:"contentType,omitempty"`
+
+	// Body is a literal, for the scenarios whose payload is a fixed document.
+	Body string `yaml:"body,omitempty"`
+	// Payload names a generator, for the scenarios whose payload is a size ladder.
+	// It and Body are mutually exclusive.
+	Payload payload.Spec `yaml:"payload,omitempty"`
+}
+
+// HasBody reports whether anything is sent.
+func (r Request) HasBody() bool { return r.Body != "" || !r.Payload.Empty() }
+
+// Verb is the method to use, defaulting to GET.
+func (r Request) Verb() string {
+	if r.Method == "" {
+		if r.HasBody() {
+			// A declared body with no method is a specification with a hole in it,
+			// not an invitation to guess. Validate rejects it; this only keeps the
+			// zero value honest for a scenario that declares nothing at all.
+			return "POST"
+		}
+		return "GET"
+	}
+	return strings.ToUpper(r.Method)
+}
+
+// Deps is an external dependency a scenario needs standing before it runs.
+//
+// Setup runs once before a scenario's first cell and teardown once after its last —
+// not per repetition. Scenario 003's Postgres is the reason: a cold database would put
+// schema creation and connection establishment inside the measured window, and the
+// scenario would report the cost of connecting rather than the cost of querying.
+type Deps struct {
+	// Setup and Teardown are executable paths relative to the scenario directory.
+	Setup    string `yaml:"setup,omitempty"`
+	Teardown string `yaml:"teardown,omitempty"`
+	// Env is passed to both, and to the runtime under test — a dependency's address
+	// has to be the same string on both sides of the connection.
+	Env map[string]string `yaml:"env,omitempty"`
+	// Note explains what the dependency is and where it runs. It reaches the report,
+	// because "the database shared a host with the subject" qualifies every number
+	// the scenario produces.
+	Note string `yaml:"note,omitempty"`
+}
+
+// Declared reports whether there is anything to stand up.
+func (d Deps) Declared() bool { return d.Setup != "" }
 
 // Selector locates a tunable knob in the integration document.
 type Selector struct {
@@ -502,6 +612,40 @@ func (s *Scenario) Validate() error {
 	if strings.TrimSpace(s.Route) == "" {
 		errs = append(errs, errors.New("scenario needs a route"))
 	}
+	// A body with no method is a hole in the specification. GET-with-a-body is legal
+	// HTTP and means nothing here, so guessing POST would quietly decide what the
+	// scenario measures.
+	if s.Request.HasBody() && s.Request.Method == "" {
+		errs = append(errs, errors.New("a request with a body must say which method"))
+	}
+	if s.Request.Body != "" && !s.Request.Payload.Empty() {
+		errs = append(errs, errors.New("a request declares either a literal body or a payload generator, not both"))
+	}
+	if s.Request.HasBody() && s.Request.ContentType == "" {
+		errs = append(errs, errors.New("a request with a body must declare a contentType"))
+	}
+	// Built here rather than at load time so a generator that cannot produce what it
+	// was asked for fails while reading the spec, not eight hours into a campaign.
+	if _, err := payload.Build(s.Request.Payload); err != nil {
+		errs = append(errs, err)
+	}
+
+	// A scenario that asks for its rate to be measured has to say where to look for
+	// it. Falling back to some default ramp would produce a rate, and a rate produced
+	// by a ramp nobody chose is exactly the kind of number this rebuild exists to
+	// stop publishing.
+	if s.Load.Calibrate && !s.Capacity.Declared() {
+		errs = append(errs, errors.New(
+			"load.calibrate is set but no capacity ramp is declared; a measured rate needs a peakRate to climb to"))
+	}
+	if c := s.Capacity; c.Declared() {
+		if d := c.WithDefaults(); d.StartRate >= c.PeakRate {
+			errs = append(errs, fmt.Errorf(
+				"capacity ramp starts at %d and peaks at %d, so it has nowhere to climb",
+				d.StartRate, c.PeakRate))
+		}
+	}
+
 	names := map[string]bool{}
 	for _, t := range s.Tunables {
 		if strings.TrimSpace(t.Name) == "" {

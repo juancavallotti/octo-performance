@@ -262,6 +262,68 @@
 </div>
 {{end}}
 
+{{if .Rates}}
+{{/* ------------------------------------------------------------------ rates -- */}}
+<h2>How each rate was chosen</h2>
+<p class="small muted">
+  Every arm of a scenario is offered the same rate, so this one number decides whether
+  the scenario's whole comparison means anything. The old lab carried
+  <span class="mono">STEADY_RATE=16000</span>, calibrated once on a laptop the day before
+  it stopped being true; by the next day every cell at that rate was shedding hundreds of
+  thousands of iterations, and nothing in a published result said so.
+</p>
+<div class="scroll">
+<table>
+  <thead><tr>
+    <th>Scenario</th><th class="n">rate</th><th>source</th><th class="n">ceiling</th><th>what the ramp found</th>
+  </tr></thead>
+  <tbody>
+  {{range $r := .Rates}}
+    <tr>
+      <td class="mono">{{$r.Scenario}}</td>
+      <td class="n">{{num $r.Rate}}<span class="muted"> req/s</span></td>
+      <td>
+        {{if eq $r.Source "measured"}}
+          <span class="tag good">measured</span>
+          {{if $r.Fraction}}<span class="small muted">{{pctAbs (mul $r.Fraction 100)}} of it</span>{{end}}
+        {{else}}
+          <span class="tag noise">declared</span>
+        {{end}}
+      </td>
+      <td class="n">
+        {{if $r.KneeRate}}{{num $r.KneeRate}}
+          {{if not $r.KneeFound}}<span class="muted" title="the ramp held every rung, so this is a floor">+</span>{{end}}
+        {{else}}<span class="muted">—</span>{{end}}
+      </td>
+      <td class="reason">{{$r.Note}}</td>
+    </tr>
+    {{if $r.Steps}}
+    <tr class="sub">
+      <td colspan="5">
+        <table class="inner">
+          <thead><tr><th class="n">offered</th><th class="n">achieved</th><th class="n">ratio</th><th class="n">dropped</th><th class="n">mean ms</th><th>held</th></tr></thead>
+          <tbody>
+          {{range $s := $r.Steps}}
+            <tr>
+              <td class="n">{{num $s.Offered}}</td>
+              <td class="n">{{num $s.Achieved}}</td>
+              <td class="n">{{pctAbs (mul $s.Ratio 100)}}</td>
+              <td class="n">{{num $s.Dropped}}</td>
+              <td class="n">{{num $s.LatencyMs}}</td>
+              <td>{{if $s.Held}}<span class="tag good">held</span>{{else}}<span class="tag bad">no</span> <span class="reason">{{$s.Why}}</span>{{end}}</td>
+            </tr>
+          {{end}}
+          </tbody>
+        </table>
+      </td>
+    </tr>
+    {{end}}
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
 {{/* ----------------------------------------------------------- provenance -- */}}
 <h2>Provenance</h2>
 <div class="scroll">

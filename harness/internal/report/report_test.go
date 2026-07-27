@@ -7,6 +7,7 @@ import (
 
 	"github.com/juancavallotti/octo-performance/harness/internal/gate"
 	"github.com/juancavallotti/octo-performance/harness/internal/result"
+	"github.com/juancavallotti/octo-performance/harness/internal/stats"
 )
 
 func cell(scenario, arm string, rep, ordinal int, rps, p95 float64, opts ...func(*result.Cell)) *result.Cell {
@@ -294,5 +295,60 @@ func TestRenderIsDeterministic(t *testing.T) {
 	c := campaign(t)
 	if render(t, c) != render(t, c) {
 		t.Error("two renders of the same campaign differ")
+	}
+}
+
+func TestTheReportSaysHowEachRateWasChosen(t *testing.T) {
+	// The single most consequential unexplained number in the old lab. Every arm of a
+	// scenario is offered the same rate, so if that rate was above the runtime's knee
+	// the whole scenario measured saturation — and no published result said where the
+	// number came from or when it was last true.
+	c := campaign(t, func(in *result.RollupInput) {
+		in.Rates = []result.RateChoice{{
+			Scenario: "001-template-page", Rate: 16000, Source: "measured",
+			Arm: "0.5.0", Fraction: 0.5, KneeFound: true, KneeRate: 32000,
+			Note: "16000 req/s, 50% of a measured knee at 32000.",
+			Steps: []stats.StepResult{
+				{Offered: 28000, Achieved: 27998, Ratio: 0.9999, LatencyMs: 0.9, Held: true},
+				{Offered: 32000, Achieved: 31990, Ratio: 0.9997, LatencyMs: 1.1, Held: true},
+				{Offered: 36000, Achieved: 24010, Ratio: 0.667, Dropped: 9161, LatencyMs: 8.4,
+					Why: "the generator shed 9161 iterations"},
+			},
+		}}
+	})
+	html := render(t, c)
+
+	if !strings.Contains(html, "How each rate was chosen") {
+		t.Fatal("the report does not say where the offered rate came from")
+	}
+	if !strings.Contains(html, "measured") {
+		t.Error("a measured rate is not distinguished from a declared one")
+	}
+	// The rung that broke, and why. A bend in a curve is not a diagnosis.
+	if !strings.Contains(html, "shed 9161 iterations") {
+		t.Error("the ramp's fold-over reason is not shown")
+	}
+	if !strings.Contains(html, "36000") {
+		t.Error("the rung that failed is not in the table")
+	}
+	if bad := SelfContained([]byte(html)); len(bad) > 0 {
+		t.Errorf("not self-contained: %v", bad)
+	}
+}
+
+func TestARateNobodyMeasuredIsLabelledDeclared(t *testing.T) {
+	c := campaign(t, func(in *result.RollupInput) {
+		in.Rates = []result.RateChoice{{
+			Scenario: "005-http-proxy", Rate: 800, Source: "scenario",
+			Note: "Fixed by design: the gap between the two arms' ceilings is the result.",
+		}}
+	})
+	html := render(t, c)
+
+	if !strings.Contains(html, "declared") {
+		t.Error("a declared rate is not labelled as one")
+	}
+	if !strings.Contains(html, "the gap between the two arms") {
+		t.Error("the reason a rate was declared rather than measured is not carried")
 	}
 }

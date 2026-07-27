@@ -19,6 +19,7 @@ import (
 	"github.com/juancavallotti/octo-performance/harness/internal/collect"
 	"github.com/juancavallotti/octo-performance/harness/internal/gate"
 	"github.com/juancavallotti/octo-performance/harness/internal/loadgen"
+	"github.com/juancavallotti/octo-performance/harness/internal/payload"
 	"github.com/juancavallotti/octo-performance/harness/internal/promx"
 	"github.com/juancavallotti/octo-performance/harness/internal/render"
 	"github.com/juancavallotti/octo-performance/harness/internal/stats"
@@ -60,6 +61,11 @@ type Cell struct {
 	Config   render.Result  `json:"config"`
 	Load     LoadSpec       `json:"load"`
 
+	// Request is what was offered: the method, and the digest of the exact bytes.
+	// Two campaigns claiming to compare the same workload can then be checked rather
+	// than assumed to agree.
+	Request RequestSpec `json:"request"`
+
 	Warmup   *loadgen.Run `json:"warmup,omitempty"`
 	Measured loadgen.Run  `json:"measured"`
 
@@ -84,6 +90,16 @@ type Harness struct {
 	Version string `json:"version"`
 	Commit  string `json:"commit,omitempty"`
 	Dev     bool   `json:"dev,omitempty"`
+}
+
+// RequestSpec is what the generator sent.
+type RequestSpec struct {
+	Method      string `json:"method"`
+	Route       string `json:"route"`
+	ContentType string `json:"contentType,omitempty"`
+	// Payload is present when the body was generated. The bytes themselves are
+	// archived in the cell directory as body.dat; this carries their identity.
+	Payload *payload.Body `json:"payload,omitempty"`
 }
 
 // LoadSpec is the resolved load, recorded as executed.

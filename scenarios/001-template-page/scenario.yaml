@@ -45,6 +45,15 @@ load:
   # run against 7,113 on a collapsed one, same binary.
   vuCap: 16000
 
+# The ramp that measures the rate above. The old lab's ramp on m1pro-16gb put the knee
+# at 32-36k req/s and folded over at 40k, so the peak brackets it rather than stopping
+# short — a ramp that never reaches the knee reports a lower bound and nothing more.
+capacity:
+  startRate: 2000
+  peakRate: 40000
+  steps: 10
+  dwell: 15s
+
 thresholds:
   p95: 20ms
   p99: 50ms
