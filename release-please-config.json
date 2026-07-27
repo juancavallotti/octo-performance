@@ -7,7 +7,6 @@
     "harness": {
       "release-type": "go",
       "component": "harness",
-      "initial-version": "0.1.0",
       "changelog-path": "CHANGELOG.md",
       "include-v-in-tag": true,
       "changelog-sections": [
