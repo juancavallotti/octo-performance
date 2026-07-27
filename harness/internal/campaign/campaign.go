@@ -350,6 +350,13 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 	}
 	out.Identity = identity
 
+	// The clock offset is taken before the collectors start and again after they stop,
+	// so the drift between the two says whether the offset held for the whole cell. An
+	// offset measured once says nothing about a clock being disciplined mid-pass, which
+	// moves the two machines' series relative to each other while every sample looks
+	// perfectly fine on its own.
+	clockAtStart := r.clockFor(ctx)
+
 	// 8. Start every collector BEFORE the window opens. The window is chosen
 	// afterwards, from the data; a collector that starts when the measurement starts
 	// cannot answer whether the measurement was steady.
@@ -384,6 +391,11 @@ func (r *Runner) RunCell(ctx context.Context, cell plan.Cell, peers []gate.Peer)
 	}
 	if runnerSampler != nil {
 		out.Runner = runnerSampler.Stop()
+	}
+
+	out.Clock = driftBetween(clockAtStart, r.clockFor(ctx))
+	if !out.Clock.Measured || out.Clock.OffsetMs != 0 || out.Clock.DriftMs != 0 {
+		cfg.Log("  clock: %s", clockText(out.Clock))
 	}
 
 	totals, err := h.Stop(cfg.StopGrace)
@@ -858,12 +870,7 @@ func (r *Runner) evidence(out *result.Cell, cell plan.Cell, peers []gate.Peer) g
 		e.Server.IdentityVersion = out.Identity.Version
 	}
 
-	// One machine has one clock. Reporting the offset as unmeasured on a colocated
-	// topology would raise a finding about a discrepancy that cannot exist, and a
-	// gate that cries wolf on the local loop is a gate people learn to skip.
-	if r.cfg.Hosts.Runner == r.cfg.Hosts.Subject {
-		e.Clock = gate.Clock{Measured: true}
-	}
+	e.Clock = out.Clock
 
 	e.Ready = gate.Ready{Method: string(out.Ready.Method), ColdStart: out.Headline.ColdStartMs}
 	e.Caps = gate.Caps{

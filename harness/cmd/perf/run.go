@@ -37,11 +37,33 @@ func cmdRun(args []string) error {
 	k6Bin := fs.String("k6", "k6", "the load generator binary")
 	skipCalibration := fs.Bool("no-calibrate", false,
 		"skip the capacity ramp and use each scenario's declared rate")
+	subjectSSH := fs.String("subject-ssh", "",
+		"user@host to run the subject on; empty means this machine, which colocates the generator with it")
+	subjectDir := fs.String("subject-dir", "",
+		"absolute staging directory on the subject host (required with --subject-ssh)")
+	depsSSH := fs.String("deps-ssh", "", "user@host to run scenario dependencies on")
+	sshKey := fs.String("ssh-key", "", "identity file for --subject-ssh and --deps-ssh")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *campaignPath == "" {
 		return errors.New("run needs --campaign")
+	}
+	if *subjectSSH != "" {
+		if *subjectDir == "" {
+			return errors.New("--subject-ssh needs --subject-dir: a path is interpreted by the subject's filesystem, not this one")
+		}
+		if !filepath.IsAbs(*subjectDir) {
+			return fmt.Errorf("--subject-dir %q must be absolute", *subjectDir)
+		}
+		if *versionsDir == "" || !filepath.IsAbs(*versionsDir) {
+			return errors.New("--subject-ssh needs an absolute --versions: the release directory is resolved on the subject, and its home is not this machine's")
+		}
+		if *subjectHost == "127.0.0.1" {
+			// Loopback on the runner is the runner. The subject would come up, answer
+			// nothing, and the whole campaign would fail readiness at cell zero.
+			return errors.New("--subject-ssh needs --subject set to the address the RUNNER reaches the subject on, not loopback")
+		}
 	}
 
 	c, err := spec.LoadCampaign(*campaignPath)
@@ -73,22 +95,63 @@ func cmdRun(args []string) error {
 		return err
 	}
 
+	// The harness and the load generator run here; only the subject and the
+	// dependencies can be elsewhere. That is the topology the architecture describes,
+	// and it is what makes the split cheap: k6's CSV never crosses a network, and the
+	// only thing SSH carries is process control and 1 Hz sampling.
 	local := exec.NewLocal()
+	defer local.Close()
+
+	hosts := campaign.Hosts{Runner: local, Subject: local}
+	subjectSource := agent.LocalSource()
+
+	if *subjectSSH != "" {
+		s, err := exec.NewSSH(exec.SSHConfig{Target: *subjectSSH, KeyFile: *sshKey})
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+		// Dialled once, here, so an unreachable subject costs a second at the start
+		// rather than a failed cell an hour in.
+		uname, err := s.Ping(context.Background())
+		if err != nil {
+			return fmt.Errorf("subject %s: %w", *subjectSSH, err)
+		}
+		fmt.Printf("subject %s: %s\n", *subjectSSH, uname)
+
+		hosts.Subject = s
+		subjectSource = agent.NewRemote(s)
+	}
+	if *depsSSH != "" {
+		d, err := exec.NewSSH(exec.SSHConfig{Target: *depsSSH, KeyFile: *sshKey})
+		if err != nil {
+			return err
+		}
+		defer d.Close()
+		if _, err := d.Ping(context.Background()); err != nil {
+			return fmt.Errorf("deps %s: %w", *depsSSH, err)
+		}
+		hosts.Deps = d
+	}
+
 	r := campaign.New(campaign.Config{
-		Hosts: campaign.Hosts{Runner: local, Subject: local},
+		Hosts: hosts,
 		Endpoints: campaign.Endpoints{
 			Host: *subjectHost, WorkloadPort: *workloadPort, AdminPort: *adminPort,
 			DepsHost: *depsHost,
 		},
 		Dir:           dir,
+		SubjectDir:    *subjectDir,
 		ResolveBinary: campaign.DefaultResolver(*versionsDir),
 		LoadGen:       loadgen.NewK6(local, *k6Bin),
-		SubjectSource: agent.LocalSource(),
-		RunnerSource:  agent.LocalSource(),
-		Gates:         gate.Default(gateConfig(c.Gates)),
-		ObserveOnly:   c.Gates.ObserveOnly,
-		Cooldown:      c.Cooldown,
-		Log:           func(f string, a ...any) { fmt.Printf(f+"\n", a...) },
+		SubjectSource: subjectSource,
+		// Always local: the runner is this machine, and its headroom is the evidence
+		// that the generator was not the bottleneck.
+		RunnerSource: agent.LocalSource(),
+		Gates:        gate.Default(gateConfig(c.Gates)),
+		ObserveOnly:  c.Gates.ObserveOnly,
+		Cooldown:     c.Cooldown,
+		Log:          func(f string, a ...any) { fmt.Printf(f+"\n", a...) },
 	})
 
 	// Ctrl-C stops after the current cell rather than in the middle of one, so the
@@ -151,7 +214,8 @@ func cmdRun(args []string) error {
 	// The roll-up and the report are written from whatever completed. A campaign cut
 	// short still answers what it managed to measure, and the ledger says how much
 	// that was — which is more than the old lab could do for a run that finished.
-	rolled := result.Rollup(rollupInput(c, p, cells, calibrations), cells)
+	colocated := hosts.Runner == hosts.Subject
+	rolled := result.Rollup(rollupInput(c, p, cells, calibrations, colocated), cells)
 	if err := result.WriteJSON(filepath.Join(dir, "campaign.json"), rolled); err != nil {
 		return err
 	}
@@ -262,7 +326,7 @@ func calibrate(ctx context.Context, r *campaign.Runner, p *plan.Plan, dir string
 
 // rollupInput carries what the cells cannot: the campaign's own declarations, and the
 // topology fact that qualifies every number in the report.
-func rollupInput(c *spec.Campaign, p *plan.Plan, cells []*result.Cell, calib []*campaign.Calibration) result.RollupInput {
+func rollupInput(c *spec.Campaign, p *plan.Plan, cells []*result.Cell, calib []*campaign.Calibration, colocated bool) result.RollupInput {
 	in := result.RollupInput{
 		Name:        c.Name,
 		Question:    c.Question,
@@ -314,9 +378,11 @@ func rollupInput(c *spec.Campaign, p *plan.Plan, cells []*result.Cell, calib []*
 		})
 	}
 	sort.Slice(in.Rates, func(i, j int) bool { return in.Rates[i].Scenario < in.Rates[j].Scenario })
-	// Colocation is the fact that qualifies everything else, so it is derived from
-	// the topology rather than left for a reader to infer from the machine names.
-	in.Colocated = c.Topology.Runner.Local() && c.Topology.Subject.Local()
+	// Colocation is the fact that qualifies everything else, so it is taken from the
+	// hosts that actually ran rather than from what the spec asked for. A campaign
+	// declaring a split topology and executed on one machine would otherwise publish
+	// numbers with the warning removed.
+	in.Colocated = colocated
 	return in
 }
 

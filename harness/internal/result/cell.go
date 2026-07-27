@@ -81,6 +81,12 @@ type Cell struct {
 	Runner  agent.Collected `json:"runner"`
 	Server  Server          `json:"server"`
 
+	// Clock is the subject's offset from the runner, measured at cell start and again
+	// at cell end. Everything here is bucketed into one-second bins, so half a second
+	// of skew moves a sample into the neighbouring bucket — enough to invert "the CPU
+	// spike preceded the throughput drop".
+	Clock gate.Clock `json:"clock"`
+
 	Headline Headline     `json:"headline"`
 	Verdict  gate.Verdict `json:"verdict"`
 }

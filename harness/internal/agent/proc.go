@@ -87,27 +87,43 @@ func (p *ProcFS) Static() (Static, error) {
 	return st, nil
 }
 
-// Sample implements Source.
-func (p *ProcFS) Sample(pid int) (Sample, error) {
-	s := Sample{T: time.Now()}
+// procSnapshot is the raw bytes one sample is built from.
+//
+// It exists so the local source and the remote one share a single parse path. The
+// alternative — a second implementation reading the same files over SSH — is two
+// parsers that agree until one of them is fixed, and a subject sampled remotely
+// would then produce numbers that quietly disagree with one sampled locally.
+type procSnapshot struct {
+	pidStat   []byte
+	pidStatus []byte
+	hostStat  []byte
+	loadavg   []byte
+	// openFDs is a count rather than a listing: the remote reader has no cheap way to
+	// enumerate a directory, and only the count is ever used.
+	openFDs int
+	// pageSize converts the stat file's RSS, which is in pages. The subject's page
+	// size, not the harness's — they are not the same machine.
+	pageSize int
+}
 
-	stat, err := os.ReadFile(p.path(strconv.Itoa(pid), "stat"))
-	if err != nil {
-		return Sample{}, fmt.Errorf("agent: reading pid %d stat: %w", pid, err)
-	}
-	ps, err := parsePIDStat(stat)
+// sampleFrom turns one snapshot into a Sample. Pure: no clock beyond the stamp it is
+// given, no filesystem, no network.
+func sampleFrom(snap procSnapshot, at time.Time) (Sample, error) {
+	s := Sample{T: at}
+
+	ps, err := parsePIDStat(snap.pidStat)
 	if err != nil {
 		return Sample{}, err
 	}
 	s.UserSeconds = ps.userSeconds
 	s.SysSeconds = ps.sysSeconds
 	s.Threads = ps.threads
-	s.RSSBytes = ps.rssPages * int64(os.Getpagesize())
+	s.RSSBytes = ps.rssPages * int64(snap.pageSize)
 
-	// status carries the peak and the switch counters, and its RSS is authoritative
-	// where both exist. Its absence is not fatal: a process that exits between the
-	// two reads should still contribute the sample it did produce.
-	if b, err := os.ReadFile(p.path(strconv.Itoa(pid), "status")); err == nil {
+	// status carries the switch counters, and its RSS is authoritative where both
+	// exist. Its absence is not fatal: a process that exits between the two reads
+	// should still contribute the sample it did produce.
+	if b := snap.pidStatus; len(b) > 0 {
 		if v, ok := kbField(b, "VmRSS:"); ok {
 			s.RSSBytes = v
 		}
@@ -118,23 +134,35 @@ func (p *ProcFS) Sample(pid int) (Sample, error) {
 			s.InvoluntaryCtxSwitches = v
 		}
 	}
+	s.OpenFDs = snap.openFDs
 
-	if entries, err := os.ReadDir(p.path(strconv.Itoa(pid), "fd")); err == nil {
-		s.OpenFDs = len(entries)
-	}
-
-	if b, err := os.ReadFile(p.path("stat")); err == nil {
-		busy, idle, err := parseHostCPU(b)
-		if err == nil {
+	if b := snap.hostStat; len(b) > 0 {
+		if busy, idle, err := parseHostCPU(b); err == nil {
 			s.HostBusySeconds, s.HostIdleSeconds = busy, idle
 		}
 	}
-	if b, err := os.ReadFile(p.path("loadavg")); err == nil {
-		if f := strings.Fields(string(b)); len(f) > 0 {
-			s.Load1, _ = strconv.ParseFloat(f[0], 64)
-		}
+	if f := strings.Fields(string(snap.loadavg)); len(f) > 0 {
+		s.Load1, _ = strconv.ParseFloat(f[0], 64)
 	}
 	return s, nil
+}
+
+// Sample implements Source.
+func (p *ProcFS) Sample(pid int) (Sample, error) {
+	at := time.Now()
+
+	stat, err := os.ReadFile(p.path(strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return Sample{}, fmt.Errorf("agent: reading pid %d stat: %w", pid, err)
+	}
+	snap := procSnapshot{pidStat: stat, pageSize: os.Getpagesize()}
+	snap.pidStatus, _ = os.ReadFile(p.path(strconv.Itoa(pid), "status"))
+	snap.hostStat, _ = os.ReadFile(p.path("stat"))
+	snap.loadavg, _ = os.ReadFile(p.path("loadavg"))
+	if entries, err := os.ReadDir(p.path(strconv.Itoa(pid), "fd")); err == nil {
+		snap.openFDs = len(entries)
+	}
+	return sampleFrom(snap, at)
 }
 
 // pidStat is the subset of /proc/[pid]/stat the harness uses.
