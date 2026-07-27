@@ -14,7 +14,7 @@ that now prevents it.
 
 | Path | What it is |
 |---|---|
-| `harness/` | The harness. One Go module, `perf` and two helper binaries. `go test ./...` covers it. |
+| `harness/` | The harness. One Go module: `perf`, plus `fakeocto` for testing it offline. `go test ./...` covers it. |
 | `harness/internal/` | One package per responsibility, each with a `doc.go` stating its single job and its invariants. |
 | `scenarios/<id>-<slug>/` | One workload: `scenario.yaml`, `octo/integration.yaml`, assets, and a README describing the integration. |
 | `campaigns/*.yaml` | Checked-in campaign specs. A campaign spec **is** the experiment's intent. |
@@ -22,6 +22,7 @@ that now prevents it.
 | `infra/terraform/` | The three machines a defensible campaign runs on. |
 | `docs/ARCHITECTURE.md` | Topology, package tree, every interface, and the invariants the tests defend. |
 | `docs/LEARNINGS.md` | The failure ledger. New failure ⇒ new row **and** new test. |
+| `docs/RUNNING.md` | The operator's guide: how to run each kind of test, and how to read what comes out. |
 
 ## Golden rules
 
