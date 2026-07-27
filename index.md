@@ -11,6 +11,8 @@ Every result answers four questions: **what hardware and what runtime version**,
 integration** was under test, what it does **out of the box versus tuned**, and what that
 throughput **cost** in CPU and memory.
 
+- **[Running the tests](docs/RUNNING.md)** — the operator's guide, from a one-minute
+  test suite to an eight-hour campaign on dedicated hardware
 - **[Methodology](METHODOLOGY.md)** — how runs are conducted, what each metric means, and
   what the numbers do not mean. Read this before quoting any of them.
 - **[Comparison to other runtimes](COMPARISON.md)** — what has to match before two

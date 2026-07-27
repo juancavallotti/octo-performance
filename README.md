@@ -138,6 +138,7 @@ docs/               ARCHITECTURE.md and the failure ledger, LEARNINGS.md
 
 ## Documentation
 
+- [docs/RUNNING.md](docs/RUNNING.md) — **how to run the tests.** Start here.
 - [METHODOLOGY.md](METHODOLOGY.md) — how runs are conducted, what each metric means, and what the
   numbers do not mean. Read before interpreting any result.
 - [AGENTS.md](AGENTS.md) — the working contract: golden rules, how to add a scenario, and the

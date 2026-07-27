@@ -61,6 +61,8 @@ These are not style preferences. Breaking one invalidates the numbers.
 
 ## Running a campaign
 
+[docs/RUNNING.md](docs/RUNNING.md) is the operator's guide. The short form:
+
 ```bash
 task build                                            # build ./harness into ./bin
 perf plan --campaign campaigns/regression-050-vs-060.yaml   # review before it runs
