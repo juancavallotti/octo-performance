@@ -1,0 +1,86 @@
+# Scenario 003 alone, one arm, and the question is where the limit actually is.
+#
+# The first campaign on real hardware measured 003's knee at 844 req/s — the lowest of
+# the seven by a factor of thirty, against 24,944 for the queue round trip. It folded on
+# latency rather than throughput: it kept delivering the offered rate all the way to
+# 1,488 req/s while mean latency went from 2.35 ms to 7.97 ms. That is the shape of
+# waiting for something, not of running out of CPU.
+#
+# What it does not say is what the waiting is for. Three explanations fit the same curve
+# and want different fixes:
+#
+#   - Postgres is saturated. Its host is an e2-standard-4, and three round trips per
+#     request at 844 req/s is roughly 2,500 operations a second reaching it.
+#   - The connection pool is the limit. maxOpenConns defaults to 25 and baseline mode
+#     strips it, so requests queue for a connection while the database sits idle. This
+#     scenario exists to measure exactly that interaction — see its scenario.yaml.
+#   - The round trips themselves. 2,500 crossings of the subnet per second, each real.
+#
+# The campaign cannot distinguish them on its own, because the harness samples the
+# subject and the runner and not the dependency host: there is a SubjectSource and a
+# RunnerSource and no DepsSource, so Postgres's own CPU has never appeared in a result.
+# Read this campaign beside a sampler running on the deps host, and the three separate:
+# a saturated database shows deps CPU near its four cores, a pool limit shows both hosts
+# idle while latency climbs.
+#
+# One arm, and 0.6.0 rather than 0.5.0, for a reason worth stating. Calibration runs once
+# per scenario against the FIRST arm, so a two-arm campaign measures the knee of its
+# baseline and asks the other arm to run at half of someone else's number. Every knee in
+# the full campaign is therefore 0.5.0's. This one measures 0.6.0's own.
+
+name: baseline-postgres-060
+question: "Where is scenario 003's limit — the runtime, the pool, or the database?"
+
+scenarios:
+  - 003-postgres-crud
+
+arms:
+  # Two arms, both 0.6.0, because the harness declines a campaign with one:
+  #
+  #   perf: a campaign compares arms: 1 given, need at least 2
+  #
+  # That is the right refusal — every number it reports is a delta against a baseline,
+  # and there is no such thing with a single column. So this is shaped as an A/A, and the
+  # shape earns its keep twice over. It is still a baseline: both arms are 0.6.0, so the
+  # ten cells are ten measurements of one runtime and the absolute numbers are what the
+  # campaign is for.
+  #
+  # And it is the first A/A this lab has run on a scenario with a dependency. The earlier
+  # control used 001, which touches nothing — it proved the harness does not invent a
+  # difference between two identical in-memory runs. It did not prove that of a run whose
+  # latency includes a database, a connection pool and a subnet crossing, which is where
+  # a rig is far more likely to manufacture one. Every metric here must come back noise.
+  - name: "0.6.0-a"
+    binary: {version: "0.6.0"}
+    config: {mode: baseline}
+  - name: "0.6.0-b"
+    binary: {version: "0.6.0"}
+    config: {mode: baseline}
+
+# Five, as everywhere else. The repetitions set the band around each absolute number —
+# a baseline quoted without one is a single sample wearing a decimal point — and they
+# are what makes the A/A reading meaningful rather than decorative.
+reps: 5
+cooldown: 30s
+
+load:
+  duration: 60s
+
+gates:
+  # Observe-only, consistent with the campaigns this will be read beside. The thresholds
+  # that belong on this hardware still have not been measured, and a gate that excludes
+  # on a guessed threshold removes evidence rather than noise.
+  observeOnly: true
+
+notes: |
+  Baseline configuration: workers, buffer, pool, maxOpenConns and maxIdleConns are all
+  stripped. That is deliberate and it is the point — this establishes the floor that a
+  tuning sweep is measured against, and 003 is the scenario where those knobs should
+  matter most.
+
+  The obvious follow-up, once this lands, is a sweep: one arm per grid point over
+  maxOpenConns and workers, reps: 1. If the pool is the limit, raising maxOpenConns moves
+  the knee and the sweep says by how much. If the database is the limit, nothing moves
+  and the answer is the deps host's four cores.
+
+  Roughly fifteen minutes: one calibration ramp of ten rungs at 15s, then five cells.
