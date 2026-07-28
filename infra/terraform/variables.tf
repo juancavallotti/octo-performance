@@ -316,9 +316,29 @@ variable "harness_repo" {
 }
 
 variable "k6_version" {
-  description = "k6 release installed on the runner. Recorded with every series it produces."
+  description = <<-EOT
+    k6 release installed on the runner. Recorded with every series it produces.
+
+    2.x and not 1.x, because that is what the parsers are tested against: the harness
+    suite runs a real k6 through LookPath rather than a fixture, so whatever an operator
+    has installed is what k6_e2e_test.go and campaign_test.go actually exercise — 2.1.0
+    at the time of writing. A runner on 1.3.0 would be the only place the summary format
+    was never checked.
+
+    That value was this variable's default from the beginning and was never a measured
+    choice. It was also never installed: the template passed it to a script that ran
+    `apt-get install -y k6` and took whatever was newest, so 1.3.0 has no runtime history
+    in this lab at all and pinning to it would move the runner backwards across a major
+    version onto untested ground.
+
+    2.0.0 rather than 2.1.0 because Grafana's deb repository has not published the latter
+    — `apt-cache madison k6` on the runner is the list this must be chosen from, and an
+    absent version now fails the boot rather than silently installing another one. The
+    laptop and the runner are then a minor version apart, which is worth knowing and is
+    not the same order of risk as a major.
+  EOT
   type        = string
-  default     = "1.3.0"
+  default     = "2.0.0"
 }
 
 variable "labels" {
