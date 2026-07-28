@@ -1,0 +1,76 @@
+# The capacity table, and nothing else.
+#
+# This is the campaign whose output is meant to be published: one knee per scenario for
+# octo 0.6.0 on known hardware, measured rather than remembered.
+#
+# It is cheap because knees come out of the calibration phase, which runs once per
+# scenario before any cell does. The cells here exist to satisfy the harness — a campaign
+# compares arms, so there must be two — and to leave a latency and cost figure beside
+# each knee. Stopping this run once calibration.json is complete costs the second half
+# and loses none of the first.
+#
+# Both arms are 0.6.0, which is not a comparison and is not meant to be. Calibration runs
+# against the FIRST arm only, so the seven knees the previous campaign measured are all
+# 0.5.0's — 0.6.0 was asked to run at half of a capacity nobody had measured for it. This
+# fixes that, and the A/A shape means the report doubles as a check that the rig does not
+# manufacture a difference across seven scenarios rather than the one it has been checked
+# on so far.
+#
+# Three of the seven ceilings were raised for this run, because their ramps held every
+# rung and a lower bound is not a performance number. Their scenario.yaml files record
+# where the new peaks came from. If any still fails to fold, the honest published entry
+# is "> N req/s, ramp did not fold" and the ceiling goes up again — a number that says
+# where the ramp stopped is a fact about the ramp.
+#
+# 005-http-proxy has no knee to find and should not be published as though it does. Its
+# backend sleeps 70 ms by construction, so its ceiling is the backend's and the scenario
+# exists to measure what a runtime does while waiting rather than how fast it can go.
+
+name: capacity-060
+question: "How far does each scenario go on 0.6.0, on this hardware?"
+
+scenarios:
+  - 001-template-page
+  - 002-fanout-transform
+  - 003-postgres-crud
+  - 004-queue-roundtrip
+  - 005-http-proxy
+  - 006-json-transform
+  - 007-csv-transform
+
+arms:
+  - name: "0.6.0-a"
+    binary: {version: "0.6.0"}
+    config: {mode: baseline}
+  - name: "0.6.0-b"
+    binary: {version: "0.6.0"}
+    config: {mode: baseline}
+
+# One repetition, unusually, and only because the knees do not come from the cells. A
+# capacity ramp is run once per scenario however many times the cells repeat, so paying
+# for five repetitions here would buy tighter bands on numbers that are not the point of
+# the campaign. Read the cell figures as indicative and the knees as the result.
+reps: 1
+cooldown: 30s
+
+load:
+  duration: 60s
+
+gates:
+  observeOnly: true
+
+notes: |
+  Baseline configuration throughout: every tunable stripped. These are the numbers a
+  reader gets with the defaults, which is what belongs in a published table — a tuned
+  figure describes a configuration, and the configuration would have to be published with
+  it to mean anything.
+
+  Read every knee against the generator before believing it. The runner samples its own
+  CPU and the loadgen gates report when it grew its pool or dropped iterations; a fold
+  that happens while the generator is saturated is the generator's knee wearing the
+  runtime's name. That risk is real at the top of 001, whose ceiling is now above where
+  the runner is expected to saturate.
+
+  003's knee is the runtime's default concurrency and not the database's capacity —
+  see tune-postgres-060.yaml, which raises workers to find out which of the two the
+  844 req/s belongs to.

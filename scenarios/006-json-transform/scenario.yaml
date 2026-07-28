@@ -43,8 +43,16 @@ load:
   vuCap: 16000
 
 capacity:
-  startRate: 200
-  peakRate: 12000
+  # Raised from 200–12,000: the ramp held every rung to 12,000 on a c4-standard-8, so
+  # that figure is a lower bound and not a knee.
+  #
+  # Where the new peak comes from: 002 folded at 10,722 and this scenario held 12,000,
+  # so it is the cheaper of the two per request and its knee is somewhere above. 001, the
+  # cheapest, held past 40,000. 45,000 brackets the gap rather than guessing inside it,
+  # and a ramp that folds early costs nothing — it is the one that does not fold that
+  # wastes a campaign.
+  startRate: 2000
+  peakRate: 45000
   steps: 10
   dwell: 15s
 
