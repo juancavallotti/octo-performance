@@ -74,8 +74,16 @@ load:
 # reaches the knee. Read the top of it with care on a colocated host: past roughly
 # 15,000 req/s the generator competes with the runtime for the same cores.
 capacity:
-  startRate: 200
-  peakRate: 20000
+  # Raised from 200–20,000: the ramp held every rung to 20,000 on a c4-standard-8, which
+  # makes that a lower bound rather than the knee this scenario is meant to report.
+  #
+  # The note above about the generator competing past 15,000 req/s described the old
+  # colocated host and no longer applies — the generator has its own sixteen-core machine
+  # now, and 20,000 was held with room to spare. What does still apply is that this is
+  # the heaviest of the in-memory transforms, so its knee should land below 006's and
+  # well below 001's; 60,000 is set to bracket that from above.
+  startRate: 2000
+  peakRate: 60000
   steps: 10
   dwell: 15s
 

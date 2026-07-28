@@ -1,0 +1,99 @@
+# Raise the runtime's concurrency until the database is the thing that gives.
+#
+# 003's baseline knee is 844 req/s, and the ramp says what capped it. Little's law on the
+# ramp's own numbers: 844 req/s at 2.35 ms needs about 2 requests in flight, while
+# 1,488 req/s at 7.97 ms needs about 11.9. The runtime's log says
+#
+#   starting flow flow=order workers=8 source=implicit
+#
+# so eight is all there are, and 8 / 7.97 ms is 1,004 req/s — which is where it folded.
+# Throughput was concurrency divided by latency, and concurrency was the constant.
+#
+# That makes the default pool an unlikely culprit and worth stating so the sweep is not
+# read as testing it: maxOpenConns defaults to 25, and 25 connections at 2.35 ms support
+# roughly 10,600 req/s. It cannot bind at 844. It would bind at higher worker counts,
+# which is exactly why it is raised here alongside them rather than left to become the
+# next limit and be mistaken for the database.
+#
+# So: workers up, pool held wide enough not to matter, and watch two things that the
+# campaign reports and one that it cannot.
+#
+#   - Does the knee move? If throughput rises with workers, the runtime was the limit.
+#   - Does cost per request hold? More workers that buy throughput while burning
+#     materially more CPU per request have traded, not won.
+#   - Is Postgres saturated? The harness samples the subject and the runner and not the
+#     dependency host, so this has to be read beside a sampler on the deps host. Four
+#     cores there: CPU approaching 400% is a saturated database, and flat CPU under a
+#     rising offered rate is something else entirely.
+#
+# The first arm is the most tuned one on purpose. Calibration runs once per scenario
+# against the first arm, so putting w64 there measures the ceiling of the tuned
+# configuration rather than the baseline's — the number this campaign exists to find.
+# Every arm then runs at half of it, which means the baseline arm is deliberately asked
+# for more than its own 844 and should saturate. That is not a flaw in the design; the
+# saturation is the measurement.
+
+name: tune-postgres-060
+question: "How far does raising workers push 003, and is the database what stops it?"
+
+scenarios:
+  - 003-postgres-crud
+
+arms:
+  # First, and therefore the arm that calibrates. Its knee is the campaign's headline.
+  - name: "w64"
+    binary: {version: "0.6.0"}
+    config:
+      mode: tuned
+      knobs: {workers: "64", maxOpenConns: "200", maxIdleConns: "200"}
+
+  # The middle of the ladder. If throughput has stopped rising by here, the limit is
+  # downstream of the runtime and w64 is buying nothing.
+  - name: "w32"
+    binary: {version: "0.6.0"}
+    config:
+      mode: tuned
+      knobs: {workers: "32", maxOpenConns: "100", maxIdleConns: "100"}
+
+  - name: "w16"
+    binary: {version: "0.6.0"}
+    config:
+      mode: tuned
+      knobs: {workers: "16", maxOpenConns: "100", maxIdleConns: "100"}
+
+  # Every knob stripped: workers 8, maxOpenConns 25. The floor the others are measured
+  # against, and the configuration that produced the 844 this campaign is questioning.
+  - name: "baseline"
+    binary: {version: "0.6.0"}
+    config: {mode: baseline}
+
+# Five, not the one repetition a sweep usually gets. A sweep with one rep per grid point
+# reads its differences off single samples, and the point here is to say whether w64 beats
+# w32 — which needs a band around each, not two numbers. Twenty cells, and the arms
+# rotate between repetitions so no configuration owns a position in the session.
+reps: 5
+cooldown: 30s
+
+load:
+  duration: 60s
+
+gates:
+  # Observe-only, as everywhere else. The baseline arm is expected to saturate here by
+  # construction, and a gate that excluded it would remove the comparison this campaign
+  # was built to make.
+  observeOnly: true
+
+notes: |
+  Read the deps host's CPU beside this. The campaign cannot see it — there is a
+  SubjectSource and a RunnerSource and no DepsSource — and without it a knee that stops
+  moving is ambiguous between a saturated database, a pool that was raised too little,
+  and a subnet round trip that costs what it costs.
+
+  If the knee moves and deps CPU climbs toward four cores, the answer is that the runtime
+  holds and the database is the limit, which is the result this campaign is looking for.
+
+  If the knee moves and deps CPU stays low, something between them binds and the next
+  grid point is the connection pool rather than the worker count.
+
+  If the knee does not move at all, workers were never the constraint and the Little's
+  law reading above is wrong — which is worth knowing quickly and cheaply.

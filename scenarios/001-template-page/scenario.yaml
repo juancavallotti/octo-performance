@@ -49,8 +49,23 @@ load:
 # at 32-36k req/s and folded over at 40k, so the peak brackets it rather than stopping
 # short — a ramp that never reaches the knee reports a lower bound and nothing more.
 capacity:
-  startRate: 2000
-  peakRate: 40000
+  # Raised from 2,000–40,000, which was bracketed for the laptop above and is below this
+  # runtime's floor on a c4-standard-8: the ramp held every rung to 40,000 and delivered
+  # 39,909 of it with zero drops at 0.233 ms, so 40,000 was never a knee, only the place
+  # the ramp stopped.
+  #
+  # 120,000 comes from the cost measured at the rate below it rather than from taste. At
+  # 20,000 req/s the subject spent 0.0738 cpu-ms per request — 147.5% of the 800% it has
+  # — which puts eight saturated cores near 108,000 req/s if cost per request holds.
+  # The peak sits above that so the fold is inside the ramp rather than at its edge.
+  #
+  # Read the top of this one against the generator, not only the subject. The runner was
+  # at 256% of its 1,600% at 20,000 req/s, so a linear extrapolation has it near 1,280%
+  # around 100,000 — close enough to its own limit that a knee found up there may be k6's
+  # rather than the runtime's. The loadgen.saturation gate is what tells the two apart,
+  # and a fold reported while the generator is saturated is not a capacity result.
+  startRate: 10000
+  peakRate: 120000
   steps: 10
   dwell: 15s
 
