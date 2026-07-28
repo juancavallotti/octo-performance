@@ -6,7 +6,16 @@
 # an accident.
 
 locals {
-  ssh_keys = "${var.ssh_user}:${trimspace(var.ssh_public_key)}"
+  # The path is read here and not in terraform.tfvars, because a .tfvars file may not
+  # call a function. Exactly one of the two variables is set — variables.tf enforces
+  # that — so this is a resolution, not a precedence rule.
+  ssh_public_key = (
+    var.ssh_public_key_file != ""
+    ? file(pathexpand(var.ssh_public_key_file))
+    : var.ssh_public_key
+  )
+
+  ssh_keys = "${var.ssh_user}:${trimspace(local.ssh_public_key)}"
 
   # The installer is sourced by both startup scripts, so it lives in one file rather
   # than being duplicated into two templates that would then drift apart — which is

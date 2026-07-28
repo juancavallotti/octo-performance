@@ -34,9 +34,39 @@ variable "zone" {
     cells differ only in the arm under test, and cross-zone latency between the runner
     and the subject would be an extra millisecond on every request that no gate could
     subtract.
+
+    Expect to change this. A zone that offers a machine family is not the same as a zone
+    that can build one right now, and the difference only surfaces at apply time:
+
+      Error: The zone 'projects/.../zones/us-central1-a' does not have enough resources
+             available to fulfil the request.
+
+    That is capacity, not configuration — nothing here is wrong and nothing needs fixing
+    beyond moving. Try another zone in the same region, in which case only this variable
+    changes and the subnet stays where it is. Distinguish it from the region-level
+    failure documented above, where the family is absent entirely and moving zone within
+    the region will not help.
+
+    Whichever zone you pick has to carry both families, because the deps host is
+    deliberately not a C4:
+
+      gcloud compute machine-types list \
+        --filter="name=(c4-standard-8,c4-standard-16,n2-standard-4) AND zone~<region>" \
+        --format="value(zone,name)" | sort
+
+    This must be a zone of var.region. The subnet is regional and an instance cannot use
+    a subnet from another region, so the two settings move together; the validation below
+    turns that into a plan-time error rather than a half-built campaign.
   EOT
   type        = string
   default     = "us-central1-a"
+
+  validation {
+    # Not a regex on the shape of a zone name — the point is agreement with the region,
+    # and a zone that merely looks well-formed is exactly the input that gets this wrong.
+    condition     = startswith(var.zone, "${var.region}-")
+    error_message = "zone must be in region ${var.region}, e.g. \"${var.region}-a\". The subnet is regional and instances cannot use a subnet from another region, so region and zone are changed together."
+  }
 }
 
 variable "prefix" {
@@ -166,15 +196,70 @@ variable "ssh_user" {
   default     = "perf"
 }
 
-variable "ssh_public_key" {
+variable "ssh_public_key_file" {
   description = <<-EOT
-    Public key installed on every machine, e.g. file("~/.ssh/id_ed25519.pub").
+    Path to the public key to install, e.g. "~/.ssh/octo-perf-lab.pub". Read here rather
+    than pasted, so terraform.tfvars names the key instead of carrying a copy of it that
+    can drift from the file it came from.
 
-    Project-level keys are deliberately blocked on these instances, so this is the only
-    key that works — an operator's stray project key would otherwise be a second way in
-    and a second thing to explain when a campaign's numbers are questioned.
+    This is the variable to set. It exists because the obvious thing to write in a
+    terraform.tfvars — the same expression that works everywhere else in Terraform —
+    is rejected before any variable is read:
+
+      Error: Function calls not allowed
+        on terraform.tfvars line 19:
+        ssh_public_key = file("~/.ssh/octo-perf-lab.pub")
+
+    A .tfvars file is data, not configuration, so no function may be called in one. The
+    file() call belongs in the module instead, which is what happens below: the tfvars
+    supplies a path, the module resolves it. Set ssh_public_key directly only when the
+    key is a literal you already have in hand rather than a file on disk.
+
+    ~ is expanded, which file() alone does not do. A relative path is resolved against
+    the directory terraform runs in, not the one your shell is in.
   EOT
   type        = string
+  default     = ""
+
+  validation {
+    # Exactly one, not a precedence rule. Two sources for the single key that opens
+    # these machines is one more than can be reasoned about later, and a silent winner
+    # is how the key on the box stops matching the key in the file.
+    condition     = (var.ssh_public_key_file == "") != (var.ssh_public_key == "")
+    error_message = "Set exactly one of ssh_public_key_file (a path, the usual choice) or ssh_public_key (a literal key). Both are currently set, or neither is."
+  }
+
+  validation {
+    condition     = var.ssh_public_key_file == "" || can(file(pathexpand(var.ssh_public_key_file)))
+    error_message = "ssh_public_key_file is \"${var.ssh_public_key_file}\", which cannot be read. ~ is expanded; a relative path resolves against the directory terraform runs in."
+  }
+
+  validation {
+    # Catches the paste that omits .pub. A private key is the same shape of line noise
+    # to the eye, and GCP accepts one into instance metadata without complaint — the
+    # mistake would surface as instances nobody can log into, having already published
+    # the key that was supposed to stay on the operator's laptop.
+    condition = (
+      var.ssh_public_key_file == "" ||
+      !can(file(pathexpand(var.ssh_public_key_file))) ||
+      can(regex("^(ssh-|ecdsa-|sk-)", trimspace(file(pathexpand(var.ssh_public_key_file)))))
+    )
+    error_message = "ssh_public_key_file is \"${var.ssh_public_key_file}\", which does not look like an OpenSSH public key. Check for a missing .pub — that path is the private key."
+  }
+}
+
+variable "ssh_public_key" {
+  description = <<-EOT
+    The public key itself, as a literal, for the case where it is not a file on disk.
+    Prefer ssh_public_key_file; see there for why a path cannot be resolved in a .tfvars.
+
+    Project-level keys are deliberately blocked on these instances, so whichever of the
+    two is set is the only key that works — an operator's stray project key would
+    otherwise be a second way in and a second thing to explain when a campaign's numbers
+    are questioned.
+  EOT
+  type        = string
+  default     = ""
 }
 
 variable "octo_versions" {
