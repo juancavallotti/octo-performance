@@ -1,6 +1,7 @@
 package loadgen
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -237,5 +238,45 @@ func TestK6ReportsAMissingBinaryRatherThanAnEmptyResult(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("a missing generator produced a result")
+	}
+}
+
+// A generator that exits before its CSV output opens the series pipe. That is what a k6
+// script exception does, and the reader is left blocked in open() on a FIFO no writer
+// will ever arrive at.
+//
+// The failure this guards against is not a wrong answer, it is no answer: a campaign
+// stopped without failing, its runtime idle and ready, its log's last line the
+// calibration that was starting. It cost a seventy-cell run that had already spent
+// twenty minutes calibrating.
+//
+// `false` stands in for k6 because the mechanism has nothing to do with k6 — any exit
+// before the pipe is opened produces it, and a real script exception is slower to
+// arrange and no more convincing.
+func TestK6DoesNotHangWhenTheGeneratorExitsBeforeOpeningTheSeriesPipe(t *testing.T) {
+	if _, err := osexec.LookPath("false"); err != nil {
+		t.Skipf("no false(1) to stand in for a generator that exits: %v", err)
+	}
+
+	k := NewK6(exec.NewLocal(), "false")
+	done := make(chan error, 1)
+	go func() {
+		_, err := k.Run(context.Background(), Request{
+			URL: "http://127.0.0.1:1/page", Model: spec.Open, Rate: 10,
+			Duration: time.Second, Pool: SizePool(10, time.Millisecond, 0),
+			OutDir: t.TempDir(),
+		})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		// Which error is not the point; returning at all is. k6 wrote no summary, and
+		// that is what Run should say.
+		if err == nil {
+			t.Fatal("a generator that wrote nothing produced a result")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("Run never returned: the series pipe reader was never released")
 	}
 }

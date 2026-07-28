@@ -88,6 +88,24 @@ func cmdRun(args []string) error {
 	// of seventy must leave behind what it intended to do, not only what it managed.
 	dir := filepath.Join(*outDir, fmt.Sprintf("%s-%s-%s",
 		time.Now().Format("2006-01-02"), c.Name, p.Short()))
+	// Absolute before anything is derived from it, for the same reason Config.withDefaults
+	// absolutises its own copy: a relative path is a different path to whoever resolves it.
+	//
+	// Config gets a copy, so absolutising there does not reach this variable, and the cell
+	// path happened to be safe only because it rebuilds from cfg.Dir. Calibration takes
+	// this one, and k6 resolves a relative open() against the script's directory rather
+	// than the harness's working directory, which appends the whole path to itself:
+	//
+	//   stat .../calibration/002-fanout-transform/k6-capacity/
+	//        campaigns/out/.../calibration/002-fanout-transform/k6-capacity/body.dat
+	//        : no such file or directory
+	//
+	// Only scenarios with a request body reach that open(), so 001 calibrated and 002
+	// did not, and a campaign that declares its rate skips calibration and never sees it
+	// at all — which is why every smoke run passed.
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
