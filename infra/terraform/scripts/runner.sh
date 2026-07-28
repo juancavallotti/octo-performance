@@ -20,7 +20,18 @@ curl -fsSL https://dl.k6.io/key.gpg | gpg --dearmor -o /etc/apt/keyrings/k6.gpg
 echo "deb [signed-by=/etc/apt/keyrings/k6.gpg] https://dl.k6.io/deb stable main" \
   > /etc/apt/sources.list.d/k6.list
 apt-get update -y
-apt-get install -y k6
+# Pinned, and the pin is the point. `apt-get install -y k6` takes whatever is newest in
+# the repository, which is how a runner declared as k6_version = "1.3.0" came up running
+# v2.0.0 — a major version across the summary format the harness parses, recorded in
+# every result's fingerprint as the version it was not. The variable was passed to this
+# template and never read, so nothing disagreed out loud.
+#
+# An absent version fails the boot here rather than silently installing another one.
+apt-get install -y "k6=${k6_version}"
+# The campaign outlives the install. An unattended upgrade that bumps k6 at cell forty
+# changes the instrument mid-measurement, and the interleaved ordering cannot balance out
+# something that happens once.
+apt-mark hold k6
 
 install -d -o "${ssh_user}" -g "${ssh_user}" /srv/perf /srv/perf/campaigns
 
