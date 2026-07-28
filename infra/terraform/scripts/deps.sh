@@ -48,6 +48,21 @@ install_lab
 cat > /etc/sysctl.d/99-perf-deps.conf <<'SYSCTL'
 net.core.somaxconn = 65535
 net.ipv4.tcp_max_syn_backlog = 65535
+# Docker publishes Postgres by DNAT to the container, and a packet that arrives from
+# another host is then forwarded rather than delivered locally. GCE's own
+# /etc/sysctl.d/60-gce-network-security.conf sets this to 0. dockerd flips it to 1 when
+# it starts, and the `sysctl --system` below undoes that by re-applying every file in
+# the directory — including GCE's. 99 sorts after 60, so declaring it here wins.
+#
+# Without it the failure is silent and points at the wrong host: setup.sh reports
+# "postgres ready on :55432" because its check runs on this machine, where docker-proxy
+# serves the connection in userspace and needs no forwarding. The subject then times out
+# reaching the same port, octo's database connector never opens, and the harness reports
+# the runtime as slow to start:
+#
+#   003-postgres-crud/0.5.0/rep1 failed: subject: 0.5.0 did not become ready within 1m0s
+#   (6000 probes to .../readyz, last: 503 Service Unavailable: starting)
+net.ipv4.ip_forward = 1
 SYSCTL
 sysctl --system
 
