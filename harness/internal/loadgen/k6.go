@@ -232,12 +232,35 @@ func (k *K6) Run(ctx context.Context, req Request) (Run, error) {
 	started := time.Now()
 	res, err := k.runner.Run(ctx, cmd)
 	ended := time.Now()
+
+	// k6 has exited, so no writer will ever arrive now. If it died before its CSV
+	// output opened the pipe — which is exactly what a script exception does — the
+	// reader above is still blocked in open() and nothing else will release it.
+	//
+	// The cost of not doing this is not a failed run, it is a stopped one. The
+	// aggregator waits forever, the campaign waits on it, the subject sits idle with a
+	// ready runtime, and the last line in the log is the calibration that was starting.
+	// Thirteen minutes of that is indistinguishable from a slow ramp; an hour of it is
+	// a campaign nobody is running any more. The error below was always the right one
+	// to report — k6's own log names the exception — it was simply never reached.
+	releaseSeriesPipe(fifoPath)
+
 	if err != nil {
+		<-readDone
 		return Run{}, fmt.Errorf("loadgen: running k6: %w", err)
 	}
 
-	if err := <-readDone; err != nil {
-		return Run{}, err
+	select {
+	case rerr := <-readDone:
+		if rerr != nil {
+			return Run{}, rerr
+		}
+	case <-time.After(seriesDrainGrace):
+		// A backstop for a case not yet seen, because the alternative to a bounded
+		// wait here is the silent stop this function just stopped having.
+		return Run{}, fmt.Errorf(
+			"loadgen: the series pipe did not close within %s of k6 exiting %d; see %s",
+			seriesDrainGrace, res.ExitCode, filepath.Join(req.OutDir, "k6.log"))
 	}
 
 	version, _ := k.Version(ctx)
@@ -277,6 +300,29 @@ func (k *K6) Run(ctx context.Context, req Request) (Run, error) {
 		run.Pool.ObservedMaxVUs = int(summary.VUsMax.Max)
 	}
 	return run, nil
+}
+
+// seriesDrainGrace bounds the wait for the aggregator once k6 is gone. It is a backstop
+// and not a timeout anyone should reach: the writer has exited, the pipe is drained
+// locally, and what remains is whatever the kernel already buffered.
+const seriesDrainGrace = 30 * time.Second
+
+// releaseSeriesPipe frees a reader waiting on a FIFO no writer will ever open.
+//
+// Opening the write end for an instant is enough. A reader blocked in open() returns as
+// soon as a writer appears, and one already reading sees EOF when the last writer
+// closes — so this delivers the end-of-stream k6 did not.
+//
+// O_NONBLOCK is what keeps this from becoming the deadlock it exists to break: with no
+// reader on the other side the open fails with ENXIO rather than waiting for one, and
+// that is precisely the case where nothing needed releasing. Every error here is
+// therefore ignorable, which is why none is returned.
+func releaseSeriesPipe(path string) {
+	f, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return
+	}
+	_ = f.Close()
 }
 
 func model(req Request) spec.Model {
