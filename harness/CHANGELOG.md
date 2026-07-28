@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.2](https://github.com/juancavallotti/octo-performance/compare/harness/v0.1.1...harness/v0.1.2) (2026-07-28)
+
+
+### Fixes
+
+* **harness:** a generator that dies must not leave the campaign waiting ([af6def5](https://github.com/juancavallotti/octo-performance/commit/af6def52fb9e0caa461f9bee3885e628c3b20a3d))
+* **harness:** make the campaign directory absolute before calibration takes it ([3ceecd9](https://github.com/juancavallotti/octo-performance/commit/3ceecd9676abb747a07522e1178c11adff80799c))
+* **infra:** forward packets to the container, or Postgres answers only itself ([721671b](https://github.com/juancavallotti/octo-performance/commit/721671b6667f16d2aabf9b7b759da6a2023cf4f0))
+
 ## [0.1.1](https://github.com/juancavallotti/octo-performance/compare/harness/v0.1.0...harness/v0.1.1) (2026-07-28)
 
 
