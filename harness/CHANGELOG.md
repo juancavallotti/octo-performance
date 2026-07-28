@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.1](https://github.com/juancavallotti/octo-performance/compare/harness/v0.1.0...harness/v0.1.1) (2026-07-28)
+
+
+### Fixes
+
+* **harness:** exec env, not env exec, or the remote command dies at 127 ([a521132](https://github.com/juancavallotti/octo-performance/commit/a52113250014cc65a67989e532404179c8f21bd8))
+* **harness:** exec env, not env exec, or the remote command dies at 127 ([f25b00a](https://github.com/juancavallotti/octo-performance/commit/f25b00a2ce3b86d51fec0b79dc3a4883ac3f1b8e))
+
+
+### Refactoring
+
+* **harness:** write the parts, do not concatenate then write ([cb4807f](https://github.com/juancavallotti/octo-performance/commit/cb4807f8539a3f0be977eed53afeffa973844565))
+
 ## 0.1.0 (2026-07-27)
 
 
