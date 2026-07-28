@@ -158,20 +158,39 @@ func (s *SSH) remoteCommand(c Cmd) string {
 		// Failing to change directory must not run the command somewhere else. Without
 		// the &&, a mistyped staging path silently runs octo in the login directory,
 		// where a relative config path resolves to a different file or to none.
-		b.WriteString("cd " + quote(c.Dir) + " && ")
-	}
-	if len(c.Env) > 0 {
-		b.WriteString("env")
-		for _, k := range sortedKeys(c.Env) {
-			b.WriteString(" " + quote(k+"="+c.Env[k]))
-		}
-		b.WriteString(" ")
+		b.WriteString("cd ")
+		b.WriteString(quote(c.Dir))
+		b.WriteString(" && ")
 	}
 	// exec so the remote shell is replaced: the pid the harness signals is then the
 	// program's own, not a shell that may or may not forward the signal.
-	b.WriteString("exec " + quote(c.Path))
+	//
+	// It has to come first, before env, and the ordering is not cosmetic. Written the
+	// other way round the remote shell receives
+	//
+	//   cd DIR && env K=V exec /path/setup.sh
+	//
+	// which asks env to run a program named "exec". exec is a shell builtin, so no such
+	// binary exists and the command dies with 127 — naming "exec" in the error, not the
+	// script, and never reaching it:
+	//
+	//   setup exited 127: env: 'exec': No such file or directory
+	//
+	// This way the shell is replaced by env, which execs the program in the same pid,
+	// so the process the harness signals is still the right one.
+	b.WriteString("exec ")
+	if len(c.Env) > 0 {
+		b.WriteString("env")
+		for _, k := range sortedKeys(c.Env) {
+			b.WriteString(" ")
+			b.WriteString(quote(k + "=" + c.Env[k]))
+		}
+		b.WriteString(" ")
+	}
+	b.WriteString(quote(c.Path))
 	for _, a := range c.Args {
-		b.WriteString(" " + quote(a))
+		b.WriteString(" ")
+		b.WriteString(quote(a))
 	}
 	return b.String()
 }

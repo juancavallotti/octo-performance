@@ -29,14 +29,96 @@ this repository is moving off a laptop: the same binary produced 15,996 req/s an
 
 ```sh
 cd infra/terraform
+cp terraform.tfvars.example terraform.tfvars   # set project and ssh_public_key
 terraform init
-terraform apply \
-  -var project=my-project \
-  -var 'ssh_public_key=<paste ~/.ssh/id_ed25519.pub>'
+terraform apply
 
 terraform output -json inventory > ../out/inventory.json
 terraform output run_command      # the invocation these machines were built for
 ```
+
+`terraform.tfvars` is gitignored, so the project id and key stay local; the `.example`
+alongside it is the shared template and documents every knob.
+
+The key is named by path, not pasted: `ssh_public_key_file = "~/.ssh/octo-perf-lab.pub"`.
+Note that this is a bare string and not `file("~/.ssh/octo-perf-lab.pub")`, which is the
+natural thing to write and fails before any variable is read — a `.tfvars` is data rather
+than configuration and may call no function:
+
+```
+Error: Function calls not allowed
+  on terraform.tfvars line 19:
+  ssh_public_key = file("~/.ssh/octo-perf-lab.pub")
+```
+
+So the tfvars supplies the path and the module does the reading, which is also where `~`
+gets expanded. Pointing at the private key by leaving off `.pub` is rejected at plan time
+rather than published into instance metadata. `ssh_public_key` still takes a literal key
+for the case where there is no file to point at; exactly one of the two is set.
+
+## When a zone will not give you the machines
+
+Two failures look alike here and only one is fixed by moving zone.
+
+The family may be absent from the region entirely, which GCP reports as a quota of zero —
+reading like a limits problem while actually being an availability one, so an increase
+request will not help:
+
+```
+Error: Quota 'CPUS_PER_VM_FAMILY' exceeded. Limit: 0.0 in region us-west1
+       dimensions = map[region:us-west1 vm_family:C4]
+```
+
+Or the family is there and the zone is simply out of capacity, which surfaces only at
+apply time:
+
+```
+Error: The zone 'projects/.../zones/us-central1-a' does not have enough resources
+       available to fulfil the request.
+```
+
+The second is not a configuration problem. Move `zone` to another one in the same region
+and leave `region` alone.
+
+Read which machine failed before moving, though, because one zone has to satisfy two
+families at once and they run out independently:
+
+```
+A n2-standard-4 VM instance is currently unavailable in the us-central1-b zone.
+  with google_compute_instance.deps[0],
+```
+
+That is the deps host, and moving `zone` for it would relocate a runner and subject that
+were placeable — for a machine whose shape is the one thing here that cannot confound a
+comparison. It is identical across every arm, so change `deps_machine_type` instead and
+stay put: `n2d-standard-4` keeps a fixed AMD platform, `e2-standard-4` is the widest
+availability. Both take `pd-balanced` and neither touches the C4 quota, which is the pair
+of constraints that matters. (`n4-standard-4` does not — N4 requires hyperdisk, so it
+means changing `deps_boot_disk_type` too.) Move `zone` when it is the runner or the
+subject that cannot be placed.
+
+The first failure needs region and zone to move together, because the subnet is regional
+and an instance cannot use a subnet from another region — a mismatched pair is rejected
+at plan time rather than halfway through an apply:
+
+```
+Error: Invalid value for variable
+  var.region is "us-central1"
+  var.zone is "us-east4-c"
+```
+
+Before moving, confirm the target carries **both** families — the runner and subject are
+C4, the deps host deliberately is not:
+
+```sh
+gcloud compute machine-types list \
+  --filter="name=(c4-standard-8,c4-standard-16,n2-standard-4) AND zone~us-central1" \
+  --format="value(zone,name)" | sort
+```
+
+That listing answers the first failure and not the second: the catalog will list a type in
+a zone that cannot currently build one. It is a necessary check, not a sufficient one. All
+three types are presently offered in `us-central1-a`, `-b`, `-c` and `-f`.
 
 Stage the release binaries on the subject as `/srv/perf/octo-versions/octo-<version>`,
 then from the runner:

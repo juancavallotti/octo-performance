@@ -1,5 +1,9 @@
 terraform {
-  required_version = ">= 1.6"
+  # 1.9 and not 1.6, because var.zone's validation refers to var.region — cross-variable
+  # validation is a 1.9 feature, and on an older CLI the check does not degrade to a
+  # warning, it fails to parse. The alternative was a lifecycle precondition on the
+  # subnet, which reports the same mistake one stage later and further from its cause.
+  required_version = ">= 1.9"
 
   required_providers {
     google = {

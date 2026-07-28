@@ -1,0 +1,125 @@
+# Copy to terraform.tfvars and edit. That name is gitignored, so a campaign's project id
+# and public key stay local; this file is the shared template and carries neither.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# Only the first two settings are required. Everything below them is a default worth
+# understanding before changing — see variables.tf, where each one records the failure it
+# exists to prevent.
+
+# ---------------------------------------------------------------------------------------
+# Required
+# ---------------------------------------------------------------------------------------
+
+project = "my-gcp-project"
+
+# The only key that works: project-wide keys are blocked on these instances, so a stray
+# one cannot become a second way in.
+#
+# Name the file; the module reads it. Note that this is a path in quotes and not
+# file("..."), which is the natural thing to write and is rejected here — a .tfvars is
+# data, not configuration, so it may not call a function:
+#
+#   Error: Function calls not allowed
+#     on terraform.tfvars line 19:
+#     ssh_public_key = file("~/.ssh/octo-perf-lab.pub")
+#
+# ~ is expanded. Point at the .pub, not the private key beside it — that mistake is
+# caught at plan time rather than published into instance metadata.
+ssh_public_key_file = "~/.ssh/octo-perf-lab.pub"
+
+# For a key that is a literal rather than a file — a CI secret, say. Exactly one of the
+# two is set, so uncommenting this means commenting out the line above.
+# ssh_public_key = "ssh-ed25519 AAAAC3Nz... you@host"
+
+# ---------------------------------------------------------------------------------------
+# Where it runs
+# ---------------------------------------------------------------------------------------
+#
+# One zone for all three machines, and the region must be the one that zone is in — the
+# subnet is regional and an instance cannot use a subnet from elsewhere. Terraform checks
+# the pair before it builds anything, so a mismatch costs a plan rather than an apply.
+#
+# Change these when a zone will not give you the machines. Two different failures look
+# similar and are worth telling apart, because only one of them is fixable by moving:
+#
+#   1. The family is not offered in the region at all. GCP expresses this as a quota of
+#      zero, which reads like a limits problem and is really an availability one:
+#
+#        Error: Quota 'CPUS_PER_VM_FAMILY' exceeded. Limit: 0.0 in region us-west1
+#               dimensions = map[region:us-west1 vm_family:C4]
+#
+#      Requesting an increase will not help. Move region and zone together.
+#
+#   2. The family is offered, but that zone is out of capacity right now:
+#
+#        Error: The zone 'projects/.../zones/us-central1-a' does not have enough
+#               resources available to fulfil the request.
+#
+#      Nothing is wrong with the configuration. Try another zone in the same region —
+#      only `zone` changes, `region` stays — or come back later.
+#
+# Case 2 is invisible until apply. The catalog will happily list c4-standard-8 in a zone
+# that cannot currently build one, so a listing is a necessary check and not a sufficient
+# one. What the catalog does answer is case 1, and both families have to appear — the
+# runner and subject are C4, the deps host deliberately is not:
+#
+#   gcloud compute machine-types list \
+#     --filter="name=(c4-standard-8,c4-standard-16,n2-standard-4) AND zone~us-central1" \
+#     --format="value(zone,name)" | sort
+#
+# As of this writing that returns all three types in us-central1-a, -b, -c and -f.
+#
+# One zone and not several is a methodological choice, not an oversight: a campaign's
+# cells are meant to differ only in the arm under test, and cross-zone latency between
+# runner and subject would add a millisecond to every request that no gate can subtract.
+
+region = "us-central1"
+zone   = "us-central1-a"
+
+# ---------------------------------------------------------------------------------------
+# Optional
+# ---------------------------------------------------------------------------------------
+
+# Name prefix on every resource, so two campaigns can coexist. Note that the C4 quota
+# cannot: the runner and subject consume all 24 CPUs a new project gets, so a second
+# concurrent campaign needs a raised quota or a different region.
+# prefix = "octoperf"
+
+# The machine shapes. The runner is twice the subject on purpose — that ratio is what
+# makes "the generator had headroom" evidence rather than an assumption, and it is the
+# thing to preserve if you move families. Changing either family means changing
+# boot_disk_type with it: hyperdisk-balanced is C4-only, pd-balanced is portable.
+#
+# When a zone is out of capacity for the deps host alone — "A n2-standard-4 VM instance
+# is currently unavailable in the us-central1-b zone" — change deps_machine_type rather
+# than the zone. That host is identical across every arm, so its shape cannot confound a
+# comparison, and moving the zone would relocate a runner and subject that were placeable.
+# n2d-standard-4 or e2-standard-4; both take pd-balanced and neither touches C4 quota.
+# subject_machine_type = "c4-standard-8"
+# runner_machine_type  = "c4-standard-16"
+# deps_machine_type    = "n2-standard-4"
+# boot_disk_type       = "hyperdisk-balanced"
+# deps_boot_disk_type  = "pd-balanced"
+# boot_disk_gb         = 100
+
+# The dependency host carries Postgres and the slow backend. Only scenarios 003 and 005
+# need it; a campaign running neither should not pay for it.
+# enable_deps = true
+
+# Octo releases staged onto the subject at boot, so no cell is the one where a binary got
+# pushed. Fetched from the GitHub release assets — never built from a local checkout.
+# octo_versions = ["0.5.0", "0.6.0"]
+
+# The measuring instrument's own version, e.g. "0.3.1" for tag harness/v0.3.1. Empty
+# stages nothing and you unpack the archive by hand.
+# harness_version = ""
+
+# k6_version = "1.3.0"
+# ssh_user   = "perf"
+# image      = "debian-cloud/debian-12"
+
+# Cost attribution and cleanup. Worth adding a campaign name here if you run more than one.
+# labels = {
+#   purpose = "octo-performance"
+# }

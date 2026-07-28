@@ -28,15 +28,10 @@ cooldown: 30s
 load:
   duration: 60s
 
-topology:
-  runner:
-    kind: ssh
-    addr: 10.128.0.2
-    user: perf
-  subject:
-    kind: ssh
-    addr: 10.128.0.3
-    user: perf
+# No topology block. run.go builds it from --subject-ssh and --deps-ssh, and records
+# colocation from the hosts that actually ran rather than from what the spec asked for.
+# The addresses that used to be here (10.128.0.2/3) matched no machine that has ever run
+# this campaign, and were archived beside the result as if they had.
 
 gates:
   # The first campaigns record every gate's evidence without excluding anything, so the
